@@ -1,0 +1,14 @@
+import { env } from "@/lib/env";
+import { checkOrders } from "@/lib/orders";
+
+export async function POST(request: Request) {
+  if (request.headers.get("x-cron-secret") !== env("CRON_SECRET")) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  try {
+    return Response.json(await checkOrders());
+  } catch (e) {
+    console.error("[cron/orders] failed", e);
+    return Response.json({ error: "Failed" }, { status: 500 });
+  }
+}
