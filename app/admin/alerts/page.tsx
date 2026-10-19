@@ -27,7 +27,7 @@ export default async function AlertsPage() {
               <div className="text-xs text-muted mb-1">{fmtDate(a.created_at)}</div>
               <p>{a.message}</p>
               {a.reservation_id && (
-                <Link href={`/admin/reservations/${a.reservation_id}`} className="mt-2 inline-block text-accent underline">
+                <Link href={`/admin/reservations/${a.reservation_id}`} className="mt-2 inline-block text-accent-strong underline">
                   View reservation {a.reservations?.reference}
                 </Link>
               )}

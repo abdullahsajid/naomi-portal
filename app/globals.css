@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fdf6f8;
+  --background: #fcf6fb;
   --foreground: #1c1c1f;
-  --card: #fffafb;
-  --line: #f1dde3;
-  --accent: #b3123f;
-  --accent-soft: #fde4ea;
+  --card: #fffafe;
+  --line: #ecdcec;
+  /* Pinks taken from the live store theme: link hover #D64FE7, button hover #EAD1EA. */
+  --accent: #d64fe7;
+  --accent-soft: #ead1ea;
+  --accent-strong: #8a1c9b; /* same hue, darker: only for small text/icons so they stay readable */
   --muted: #5d5d63;
   --ink: #1c1c1f;
 }
@@ -18,9 +20,10 @@
   --color-line: var(--line);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-strong: var(--accent-strong);
   --color-muted: var(--muted);
   --color-ink: var(--ink);
-  /* Placeholder fonts until the client confirms the store font. */
+  /* Headings: Nixie One (store primary font). Body: Inter placeholder, the store uses Lekton. */
   --font-sans: var(--font-body);
   --font-serif: var(--font-heading);
 }
@@ -33,4 +36,22 @@ body {
 
 .font-heading {
   font-family: var(--font-heading), Georgia, serif;
+}
+
+/* Dark buttons: soft-pink hover like the store, and a pink glow when pressed. */
+a.bg-ink,
+button.bg-ink {
+  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+a.bg-ink:hover,
+button.bg-ink:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+a.bg-ink:active,
+button.bg-ink:active:not(:disabled),
+a.bg-ink:focus-visible,
+button.bg-ink:focus-visible {
+  box-shadow: 0 0 0 4px rgba(214, 79, 231, 0.35), 0 0 18px rgba(214, 79, 231, 0.55);
+  outline: none;
 }

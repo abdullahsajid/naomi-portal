@@ -28,11 +28,11 @@ export default async function ReservePage({ params }: PageProps<"/reserve/[produ
         <ArtworkHeader name={product.name} image={product.imageUrl} />
       </div>
 
-      <div className="rounded-xl bg-accent-soft px-5 py-5 flex items-center gap-4 text-accent">
+      <div className="rounded-xl bg-accent-soft px-5 py-5 flex items-center gap-4 text-accent-strong">
         <TagIcon />
         <div className="text-xl font-semibold leading-snug">
           {discount > 0 ? `Buy by bank transfer and save ${aud(discount).replace(".00", "")}` : "Buy by bank transfer"}
-          <div className="mt-1 text-sm font-normal text-accent/80">
+          <div className="mt-1 text-sm font-normal text-accent-strong/80">
             {discount > 0
               ? `${aud(Math.max(0, product.price - discount))} instead of ${aud(product.price)}`
               : aud(product.price)}
@@ -44,7 +44,7 @@ export default async function ReservePage({ params }: PageProps<"/reserve/[produ
       <ol className="space-y-4">
         {STEPS.map((s, i) => (
           <li key={s} className="flex items-center gap-4">
-            <span className="shrink-0 grid place-items-center h-10 w-10 rounded-full bg-accent-soft text-accent font-semibold">
+            <span className="shrink-0 grid place-items-center h-10 w-10 rounded-full bg-accent-soft text-accent-strong font-semibold">
               {i + 1}
             </span>
             <span>{s}</span>
@@ -85,7 +85,7 @@ function TagIcon() {
 }
 function LockIcon() {
   return (
-    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#b3123f" strokeWidth="1.6" aria-hidden>
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#8a1c9b" strokeWidth="1.6" aria-hidden>
       <rect x="5" y="11" width="14" height="10" rx="2" />
       <path d="M8 11V8a4 4 0 0 1 8 0v3" />
     </svg>

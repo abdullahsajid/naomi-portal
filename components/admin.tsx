@@ -5,7 +5,7 @@ const COLORS: Record<string, string> = {
   sold: "bg-green-100 text-green-800",
   expired: "bg-gray-100 text-gray-600",
   released: "bg-gray-100 text-gray-600",
-  failed: "bg-red-100 text-red-700",
+  failed: "bg-[#ead1ea] text-[#8a1c9b]",
   hidden: "bg-gray-100 text-gray-700",
 };
 

@@ -27,7 +27,8 @@ export default async function ReservationDetail({ params }: PageProps<"/admin/re
     ["Artwork", `${r.product_name ?? "–"} (Big Cartel #${r.product_id})`],
     ["Amount", money(r.amount)],
     ["Customer", r.customer_name],
-    ["Email", <a key="e" className="text-accent underline" href={`mailto:${r.customer_email}`}>{r.customer_email}</a>],
+    ["Email", <a key="e" className="text-accent-strong underline" href={`mailto:${r.customer_email}`}>{r.customer_email}</a>],
+    ["Mobile", r.phone ?? "–"],
     ["Shipping address", <span key="a" className="whitespace-pre-line">{r.shipping_address}</span>],
     ["Created", fmtDate(r.created_at)],
   ];
@@ -85,7 +86,7 @@ export default async function ReservationDetail({ params }: PageProps<"/admin/re
           ) : isPdf ? (
             <>
               <iframe src={receiptUrl} className="w-full h-[480px] rounded-lg border border-line" title="Receipt" />
-              <a href={receiptUrl} target="_blank" rel="noreferrer" className="text-sm text-accent underline">
+              <a href={receiptUrl} target="_blank" rel="noreferrer" className="text-sm text-accent-strong underline">
                 Open PDF in a new tab
               </a>
             </>

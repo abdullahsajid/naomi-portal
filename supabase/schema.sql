@@ -12,6 +12,13 @@ create table reservations (
   customer_email text not null,
   shipping_address text not null,
   status text not null,                    -- locking | active | receipt_uploaded | sold | expired | released | failed
+  phone text,
+  street text,
+  suburb text,
+  state text,
+  postcode text,
+  country text,
+  ip_hash text,                            -- salted hash, used only for rate limiting
   original_status text,                    -- Big Cartel product status before we hid it; restored on expiry/release/cleanup
   expires_at timestamptz,
   receipt_path text,
@@ -45,11 +52,30 @@ create table alerts (
   created_at timestamptz default now()
 );
 
+-- Pending email verifications. The artwork is NOT held until a code is confirmed.
+create table email_verifications (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,
+  ip_hash text not null,
+  product_id text not null,
+  payload jsonb not null,
+  code_hash text not null,
+  attempts int not null default 0,
+  consumed boolean not null default false,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+create index email_verifications_email_idx on email_verifications (email, created_at);
+create index email_verifications_ip_idx on email_verifications (ip_hash, created_at);
+create index reservations_ip_idx on reservations (ip_hash, created_at);
+create index reservations_email_idx on reservations (customer_email, created_at);
+
 -- All access goes through the server with the service-role key (which bypasses RLS).
 -- Enabling RLS with no policies blocks the anon key entirely.
 alter table reservations enable row level security;
 alter table settings enable row level security;
 alter table alerts enable row level security;
+alter table email_verifications enable row level security;
 
 insert into storage.buckets (id, name, public) values ('receipts', 'receipts', false)
   on conflict (id) do nothing;

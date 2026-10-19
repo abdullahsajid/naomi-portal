@@ -10,7 +10,7 @@ export default async function StockPage() {
   try {
     products = await listProducts();
   } catch {
-    return <p className="text-accent">Could not load products from Big Cartel. Check the Big Cartel password in the environment settings.</p>;
+    return <p className="text-accent-strong">Could not load products from Big Cartel. Check the Big Cartel password in the environment settings.</p>;
   }
   const { data: live } = await db()
     .from("reservations")

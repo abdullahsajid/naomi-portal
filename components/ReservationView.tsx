@@ -153,7 +153,7 @@ function ActiveState({ view, msLeft, onUploaded }: { view: View; msLeft: number;
   return (
     <main className="flex-1 w-full max-w-md mx-auto px-4 py-4 space-y-3">
       <section className="rounded-2xl bg-accent-soft px-4 py-5 text-center">
-        <svg className="mx-auto text-accent" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <svg className="mx-auto text-accent-strong" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" strokeLinecap="round" />
         </svg>
@@ -166,7 +166,7 @@ function ActiveState({ view, msLeft, onUploaded }: { view: View; msLeft: number;
 
       <ArtworkHeader name={view.productName} image={view.productImage} />
 
-      <section className="rounded-2xl bg-accent-soft px-4 py-4 flex items-center gap-4 text-accent">
+      <section className="rounded-2xl bg-accent-soft px-4 py-4 flex items-center gap-4 text-accent-strong">
         <span className="shrink-0 grid place-items-center h-14 w-14 rounded-full bg-accent text-white text-3xl font-bold">!</span>
         <div className="text-center flex-1">
           <div className="text-3xl font-extrabold leading-none">PAY IN AUD ONLY</div>
@@ -203,7 +203,7 @@ function ActiveState({ view, msLeft, onUploaded }: { view: View; msLeft: number;
       <UploadCard id={view.id} onUploaded={onUploaded} />
 
       <section className="rounded-2xl bg-accent-soft px-4 py-4 flex gap-3 text-sm leading-relaxed">
-        <svg className="shrink-0 text-accent" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <svg className="shrink-0 text-accent-strong" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
           <circle cx="12" cy="12" r="9" />
           <path d="M12 11v6M12 7.5v.5" strokeLinecap="round" />
         </svg>
@@ -275,7 +275,7 @@ function UploadCard({ id, onUploaded }: { id: string; onUploaded: () => void }) 
     <section className="rounded-2xl border border-line bg-card px-4 py-4">
       <h2 className="text-xl font-bold mb-3">Upload your payment receipt</h2>
       <label className="block cursor-pointer rounded-xl border-2 border-dashed border-accent/40 px-4 py-8 text-center">
-        <svg className="mx-auto text-accent" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+        <svg className="mx-auto text-accent-strong" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
           <path d="M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9H7Z" strokeLinejoin="round" />
           <path d="M12 16v-6m0 0-2.5 2.5M12 10l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -291,7 +291,7 @@ function UploadCard({ id, onUploaded }: { id: string; onUploaded: () => void }) 
         />
       </label>
       {error && (
-        <p role="alert" className="mt-3 rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent">
+        <p role="alert" className="mt-3 rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent-strong">
           {error}
         </p>
       )}

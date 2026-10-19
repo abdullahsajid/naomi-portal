@@ -55,7 +55,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/admin/s
           <div className="space-y-2">
             {products.map((p) => (
               <label key={p.id} className="flex items-center gap-3 text-sm">
-                <input type="checkbox" name="enabled" value={p.id} defaultChecked={enabled.includes(p.id)} className="h-4 w-4 accent-[#b3123f]" />
+                <input type="checkbox" name="enabled" value={p.id} defaultChecked={enabled.includes(p.id)} className="h-4 w-4 accent-[#d64fe7]" />
                 {p.name} <span className="text-muted">#{p.id}</span>
               </label>
             ))}

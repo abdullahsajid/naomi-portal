@@ -24,6 +24,9 @@ export async function getAvailability(productId: string): Promise<Availability> 
     return { available: false, reason: "not-found" };
   }
 
+  // Single-unit artworks only: hiding a product would also block the other units.
+  if (product.quantity > 1) return { available: false, reason: "not-offered" };
+
   const { data: live } = await db()
     .from("reservations")
     .select("id")

@@ -18,7 +18,7 @@ export function LoginForm() {
         autoFocus
         className="mt-2 w-full rounded-lg border border-line bg-white px-3.5 py-3 outline-none focus:border-accent"
       />
-      {state?.error && <p className="mt-3 text-sm text-accent">{state.error}</p>}
+      {state?.error && <p className="mt-3 text-sm text-accent-strong">{state.error}</p>}
       <button disabled={pending} className="mt-4 w-full rounded-lg bg-ink text-white py-3 font-semibold disabled:opacity-60">
         {pending ? "Checking…" : "Log in"}
       </button>

@@ -8,9 +8,20 @@ export type ReserveInput = {
   productId: string;
   name: string;
   email: string;
-  address: string;
+  phone: string; // E.164-style, e.g. +61412345678
+  street: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+  country: string;
   terms: boolean;
 };
+
+/** One-line-per-part address used for emails, the admin page and shipping. */
+export const formatAddress = (i: Pick<ReserveInput, "street" | "suburb" | "state" | "postcode" | "country">) =>
+  `${i.street}
+${i.suburb}, ${i.state} ${i.postcode}
+${i.country}`;
 
 export type ReserveResult =
   | { ok: true; id: string; reference: string }
@@ -27,21 +38,35 @@ const isUnique = (e: { code?: string } | null) => e?.code === "23505";
 const isLiveIndex = (e: { message?: string } | null) =>
   !!e?.message?.includes("one_live_reservation_per_product");
 
+const clean = (v: unknown, max = 200) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max + 1);
+
+/** Validates the customer details form (all fields mandatory). */
 export function validateReserve(
   body: any,
 ): { ok: true; value: ReserveInput } | { ok: false; error: string } {
-  const productId = String(body?.productId ?? "").trim();
-  const name = String(body?.name ?? "").trim();
-  const email = String(body?.email ?? "").trim();
-  const address = String(body?.address ?? "").trim();
+  const productId = clean(body?.productId, 30);
+  const name = clean(body?.name);
+  const email = clean(body?.email, 320).toLowerCase();
+  const phone = clean(body?.phone, 30).replace(/[\s\-().]/g, "");
+  const street = clean(body?.street);
+  const suburb = clean(body?.suburb);
+  const state = clean(body?.state);
+  const postcode = clean(body?.postcode, 12);
+  const country = clean(body?.country);
+
   if (!/^\d+$/.test(productId)) return { ok: false, error: "Invalid artwork." };
   if (name.length < 2 || name.length > 200) return { ok: false, error: "Please enter your full name." };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320)
-    return { ok: false, error: "Please enter a valid email." };
-  if (address.length < 10 || address.length > 1000)
-    return { ok: false, error: "Please enter your full shipping address." };
+    return { ok: false, error: "Please enter a valid email address." };
+  if (!/^\+[1-9]\d{7,14}$/.test(phone))
+    return { ok: false, error: "Please enter your mobile number including the country code, e.g. +61 412 345 678." };
+  if (street.length < 3 || street.length > 200) return { ok: false, error: "Please enter your street address." };
+  if (suburb.length < 2 || suburb.length > 100) return { ok: false, error: "Please enter your suburb or city." };
+  if (state.length < 2 || state.length > 100) return { ok: false, error: "Please enter your state or province." };
+  if (!/^[A-Za-z0-9][A-Za-z0-9 \-]{1,10}$/.test(postcode)) return { ok: false, error: "Please enter your postcode or ZIP code." };
+  if (country.length < 2 || country.length > 100) return { ok: false, error: "Please enter your country." };
   if (body?.terms !== true) return { ok: false, error: "Please accept the terms." };
-  return { ok: true, value: { productId, name, email, address, terms: true } };
+  return { ok: true, value: { productId, name, email, phone, street, suburb, state, postcode, country, terms: true } };
 }
 
 async function markFailed(id: string) {
@@ -52,7 +77,7 @@ async function markFailed(id: string) {
 }
 
 /** Race-safe reserve flow. The unique partial index is the lock. */
-export async function reserve(input: ReserveInput): Promise<ReserveResult> {
+export async function reserve(input: ReserveInput, ipHash: string | null = null): Promise<ReserveResult> {
   const supabase = db();
 
   const { data: settings } = await supabase.from("settings").select("*").eq("id", 1).maybeSingle();
@@ -72,7 +97,14 @@ export async function reserve(input: ReserveInput): Promise<ReserveResult> {
         product_id: input.productId,
         customer_name: input.name,
         customer_email: input.email,
-        shipping_address: input.address,
+        phone: input.phone,
+        street: input.street,
+        suburb: input.suburb,
+        state: input.state,
+        postcode: input.postcode,
+        country: input.country,
+        shipping_address: formatAddress(input),
+        ip_hash: ipHash,
         status: "locking",
       })
       .select("id, reference")
@@ -98,6 +130,11 @@ export async function reserve(input: ReserveInput): Promise<ReserveResult> {
   if (product.status !== "active" || product.quantity < 1 || !product.optionId) {
     await markFailed(row.id);
     return { ok: false, status: 409, error: "This artwork is currently reserved." };
+  }
+  // Hiding is all-or-nothing, so it is only safe for single-unit artworks (see CLAUDE.md).
+  if (product.quantity > 1) {
+    await markFailed(row.id);
+    return { ok: false, status: 409, error: "Bank transfer isn't available for this artwork." };
   }
 
   // Record what we are about to change BEFORE changing it, so crash cleanup can restore it.
@@ -196,6 +233,12 @@ export async function expireReservations() {
       );
     }
   }
+
+  // Pending verification rows hold customer details, so don't keep them around.
+  await supabase
+    .from("email_verifications")
+    .delete()
+    .lt("created_at", new Date(Date.now() - 24 * 60 * 60_000).toISOString());
 
   const cutoff = new Date(Date.now() - 2 * 60_000).toISOString();
   const { data: stuck } = await supabase

@@ -1,12 +1,14 @@
-// Simultaneous-reservation test. Needs `npm run dev` running and Supabase/CRON env vars set.
+// Simultaneous-reservation test through the real verification path.
 //   npm run race-test -- <product_id> [base_url]
-// Fires 5 reserve requests at once, expects exactly 1x 200 and 4x 409, checks the product got
-// hidden on Big Cartel, then force-expires the winner via the cron route and checks the original
-// status is restored.
+// Needs `npm run dev` running, plus Supabase/CRON/SESSION_SECRET env vars.
+// Plants 5 pending email verifications (known code 123456), confirms all 5 at once, and expects
+// exactly 1x200 and 4x409. Then checks the product got hidden, force-expires the winner through the
+// cron route, and checks the original Big Cartel status is restored. Cleans up its test rows.
+import { createHmac, randomUUID } from "node:crypto";
 
 const { BIGCARTEL_SUBDOMAIN, BIGCARTEL_PASSWORD, BIGCARTEL_ACCOUNT_ID, BIGCARTEL_USER_AGENT } = process.env;
-const { NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET } = process.env;
-for (const [k, v] of Object.entries({ NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET, BIGCARTEL_PASSWORD })) {
+const { NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET, SESSION_SECRET } = process.env;
+for (const [k, v] of Object.entries({ NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET, SESSION_SECRET, BIGCARTEL_PASSWORD })) {
   if (!v) {
     console.error(`Missing ${k} in .env.local`);
     process.exit(1);
@@ -20,6 +22,13 @@ if (!productId) {
   process.exit(1);
 }
 
+const rest = `${new URL(NEXT_PUBLIC_SUPABASE_URL!).origin}/rest/v1`;
+const sb = {
+  apikey: SUPABASE_SERVICE_ROLE_KEY!,
+  Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+  "Content-Type": "application/json",
+};
+
 async function bcStatus(): Promise<string> {
   const auth = Buffer.from(`${BIGCARTEL_SUBDOMAIN}:${BIGCARTEL_PASSWORD}`).toString("base64");
   const res = await fetch(`https://api.bigcartel.com/v1/accounts/${BIGCARTEL_ACCOUNT_ID}/products/${productId}`, {
@@ -27,6 +36,8 @@ async function bcStatus(): Promise<string> {
   });
   return (await res.json()).data.attributes.status;
 }
+
+const hmac = (v: string) => createHmac("sha256", SESSION_SECRET!).update(v).digest("hex");
 
 async function main() {
   const startStatus = await bcStatus();
@@ -36,26 +47,41 @@ async function main() {
     process.exit(1);
   }
 
-  const body = (i: number) =>
-    JSON.stringify({
-      productId,
-      name: `Race Tester ${i}`,
-      email: `race${i}@example.com`,
-      address: "1 Test Street, Sydney NSW 2000, Australia",
-      terms: true,
-    });
+  // Plant 5 verifications with a known code.
+  const rows = [1, 2, 3, 4, 5].map((i) => {
+    const id = randomUUID();
+    const email = `race${i}@example.com`;
+    return {
+      id,
+      email,
+      ip_hash: `race-test-${i}`,
+      product_id: productId,
+      payload: {
+        productId, name: `Race Tester ${i}`, email, phone: "+61412345678",
+        street: "1 Test Street", suburb: "Sydney", state: "NSW", postcode: "2000", country: "Australia", terms: true,
+      },
+      code_hash: hmac(`code:${id}:123456`),
+      expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+    };
+  });
+  const ins = await fetch(`${rest}/email_verifications`, { method: "POST", headers: sb, body: JSON.stringify(rows) });
+  if (!ins.ok) {
+    console.error("Could not plant verifications. Did you run supabase/migration-002-email-verification.sql?", await ins.text());
+    process.exit(1);
+  }
+
   const t0 = Date.now();
   const results = await Promise.all(
-    [1, 2, 3, 4, 5].map(async (i) => {
-      const res = await fetch(`${base}/api/reserve`, {
+    rows.map(async (r, i) => {
+      const res = await fetch(`${base}/api/verify/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: body(i),
+        body: JSON.stringify({ verificationId: r.id, code: "123456" }),
       });
-      return { i, status: res.status, json: await res.json() };
+      return { i: i + 1, status: res.status, json: await res.json() };
     }),
   );
-  console.log(`5 requests finished in ${Date.now() - t0}ms`);
+  console.log(`5 confirmations finished in ${Date.now() - t0}ms`);
   for (const r of results) console.log(`  #${r.i} -> ${r.status} ${JSON.stringify(r.json)}`);
 
   const wins = results.filter((r) => r.status === 200);
@@ -66,17 +92,12 @@ async function main() {
   const hidden = await bcStatus();
   console.log(`Big Cartel status after reserve: ${hidden}`, hidden === "hidden" ? "(PASS)" : "(FAIL)");
 
-  // Cleanup: backdate the winner's expiry, then let the cron expire it and restore status.
+  // Cleanup: backdate the winner's expiry, let the cron expire it (restores status), then delete test rows.
   let pass2 = false;
   if (wins[0]) {
-    const rest = `${new URL(NEXT_PUBLIC_SUPABASE_URL!).origin}/rest/v1/reservations?id=eq.${wins[0].json.id}`;
-    await fetch(rest, {
+    await fetch(`${rest}/reservations?id=eq.${wins[0].json.id}`, {
       method: "PATCH",
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY!,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: sb,
       body: JSON.stringify({ expires_at: new Date(Date.now() - 60_000).toISOString() }),
     });
     const cron = await fetch(`${base}/api/cron/expire`, { method: "POST", headers: { "x-cron-secret": CRON_SECRET! } });
@@ -85,6 +106,8 @@ async function main() {
     pass2 = restored === startStatus;
     console.log(`Big Cartel status after expiry: ${restored}`, pass2 ? "(PASS, original restored)" : "(FAIL)");
   }
+  await fetch(`${rest}/reservations?customer_email=like.race*@example.com`, { method: "DELETE", headers: sb });
+  await fetch(`${rest}/email_verifications?email=like.race*@example.com`, { method: "DELETE", headers: sb });
   process.exit(pass1 && hidden === "hidden" && pass2 ? 0 : 1);
 }
 

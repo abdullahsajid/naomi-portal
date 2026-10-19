@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Inter, Playfair_Display } from "next/font/google";
+import { Inter, Nixie_One } from "next/font/google";
 import "./globals.css";
 
-// Placeholder fonts; swap once the client confirms the main store font.
+// Headings use the store's primary font (Nixie One, from the live Cosmos theme). Body stays Inter for now.
 const body = Inter({ variable: "--font-body", subsets: ["latin"] });
-const heading = Playfair_Display({ variable: "--font-heading", subsets: ["latin"] });
+const heading = Nixie_One({ variable: "--font-heading", weight: "400", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Naomi Katz Art – Payment Portal",

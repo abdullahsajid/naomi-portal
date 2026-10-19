@@ -47,7 +47,7 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
               {rows.map((r) => (
                 <tr key={r.id} className="border-t border-line hover:bg-accent-soft/30">
                   <td className="px-3 py-2.5 font-semibold whitespace-nowrap">
-                    <Link href={`/admin/reservations/${r.id}`} className="text-accent underline">
+                    <Link href={`/admin/reservations/${r.id}`} className="text-accent-strong underline">
                       {r.reference}
                     </Link>
                   </td>
