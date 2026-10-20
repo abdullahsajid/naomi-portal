@@ -3,3 +3,7 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # Netlify's secrets scanner fails the build if an env value shows up in the repo or build output.
+  # These are public or non-secret settings (they appear in docs and in the built site by design),
+  # so they are excluded. Real secrets (passwords, API keys) are NOT listed here and stay scanned.
+  SECRETS_SCAN_OMIT_KEYS = "BIGCARTEL_SUBDOMAIN,BIGCARTEL_ACCOUNT_ID,BIGCARTEL_USER_AGENT,NEXT_PUBLIC_SITE_URL,NEXT_PUBLIC_SUPABASE_URL,ADMIN_EMAIL,EMAIL_FROM"

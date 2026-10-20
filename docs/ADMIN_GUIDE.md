@@ -5,10 +5,11 @@ For Naomi Katz Art. Go to **pay.naomikatzart.com/admin** and log in with the adm
 ## What customers do
 
 1. They click **Buy by bank transfer** on an artwork in your store.
-2. They enter their name, email and shipping address.
-3. The artwork is **held for 15 minutes** (it disappears from the store so nobody else can buy it) and they see your bank details.
-4. They transfer the money (in AUD) and upload a screenshot or PDF of the receipt.
-5. Once the receipt is in, the artwork stays held **until you decide**. The 15 minutes only applies to uploading the receipt, not to the money arriving.
+2. They enter their name, email, mobile number (with country code) and full address.
+3. They get a 6-digit code by email and enter it. Until then **nothing is reserved and no bank details are shown**.
+4. The artwork is **held for 15 minutes** (it disappears from the store so nobody else can buy it) and they see your bank details.
+5. They transfer the money (in AUD) and upload a screenshot or PDF of the receipt.
+6. Once the receipt is in, the artwork stays held **until you decide**. The 15 minutes only applies to uploading the receipt, not to the money arriving.
 
 If no receipt is uploaded in 15 minutes, the artwork goes back on sale automatically and the customer gets an email.
 

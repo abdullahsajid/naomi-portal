@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Naomi Katz Art: bank transfer portal
 
-## Getting Started
+A small web app that sits next to the Big Cartel store. A customer can buy an artwork by bank transfer at a discount: they enter their details, confirm their email with a 6-digit code, get 15 minutes to pay and upload a receipt, and the artwork is held for them until the owner confirms the payment in the admin dashboard.
 
-First, run the development server:
+Big Cartel's API cannot change stock, so a reserved artwork is hidden on the store and restored when the reservation ends.
+
+## Stack
+
+Next.js (App Router) and TypeScript, Tailwind CSS, Supabase (Postgres and private file storage), Resend for email, Netlify for hosting, cron-job.org for the timers.
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # then fill in the values, see docs/INSTALL.md
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Run the SQL in `supabase/schema.sql` in your Supabase project first.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the dev server |
+| `npm run build` | Production build |
+| `npm run bc-test -- <product_id>` | Hide and restore one product on Big Cartel (API check) |
+| `npm run race-test -- <product_id>` | Five simultaneous reservations; exactly one must win |
+| `npm run email-preview` | Write the email templates to `.email-preview/` for viewing in a browser |
 
-## Learn More
+## Documentation
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [docs/INSTALL.md](docs/INSTALL.md): environment, Supabase, Netlify, cron jobs, theme button
+- [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md): guide for the store owner
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it works, flows and decisions

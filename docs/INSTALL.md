@@ -22,7 +22,7 @@ Copy these into `.env.local` for local work, and into Netlify (Site configuratio
 | `EMAIL_FROM` | `Naomi Katz Art <hello@naomikatzart.com>` (needs the domain verified in Resend) |
 | `ADMIN_EMAIL` | Where receipt and conflict alerts are sent |
 | `ADMIN_PASSWORD` | Password for `/admin` |
-| `SESSION_SECRET` | Long random string that signs the admin login cookie |
+| `SESSION_SECRET` | Long random string that signs the admin login cookie and hashes verification codes |
 | `CRON_SECRET` | Long random string; cron-job.org sends it in the `x-cron-secret` header |
 | `RESERVATION_MINUTES` | Optional, default `15` |
 | `NEXT_PUBLIC_SITE_URL` | `https://pay.naomikatzart.com` (used for links in emails) |
@@ -34,7 +34,7 @@ Use **new, never-shared** values for `ADMIN_PASSWORD`, `SESSION_SECRET` and `CRO
 ## 2. Supabase
 
 1. Create a free project at supabase.com.
-2. SQL Editor → New query → paste all of [`supabase/schema.sql`](../supabase/schema.sql) → Run. It creates the tables, the "one live reservation per artwork" rule, row-level security, and the private `receipts` bucket.
+2. SQL Editor → New query → paste all of [`supabase/schema.sql`](../supabase/schema.sql) → Run. (A project created before email verification was added instead runs [`supabase/migration-002-email-verification.sql`](../supabase/migration-002-email-verification.sql) once.) It creates the tables, the "one live reservation per artwork" rule, row-level security, and the private `receipts` bucket.
 3. Project Settings → API Keys: copy the **service_role** key. Project URL: Data API page. (The code accepts the URL with or without a trailing `/rest/v1/`.)
 4. After the first deploy, log in to `/admin` → **Settings** and enter the bank details and discount.
 
@@ -65,6 +65,8 @@ For **both**: Advanced → Headers → add `x-cron-secret` with the value of `CR
 - *Orders* checks Big Cartel for card orders on an artwork that is currently reserved and raises an alert (see the admin guide).
 
 ## 5. Resend (email)
+
+**Required for customers to reserve:** the 6-digit verification code is sent by email, so without a verified domain and API key no customer receives a code. (Local development prints the code to the terminal instead.)
 
 1. Create an account at resend.com → Domains → add `naomikatzart.com` → add the DNS records it lists (SPF/DKIM) at the registrar → wait for "Verified".
 2. Create an API key and set `RESEND_API_KEY` and `EMAIL_FROM`.

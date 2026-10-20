@@ -134,7 +134,7 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
     await markFailed(row.id);
     return { ok: false, status: 409, error: "This artwork is currently reserved." };
   }
-  // Hiding is all-or-nothing, so it is only safe for single-unit artworks (see CLAUDE.md).
+  // Hiding is all-or-nothing, so it is only safe for single-unit artworks (see docs/ARCHITECTURE.md).
   if (product.quantity > 1) {
     await markFailed(row.id);
     return { ok: false, status: 409, error: "Bank transfer isn't available for this artwork." };

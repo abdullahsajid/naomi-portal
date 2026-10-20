@@ -1,4 +1,4 @@
-# Naomi Katz Art – Bank Transfer Reservation Portal
+# Technical notes
 
 ## Goal
 A small web app connected to a Big Cartel store. Customers can buy an artwork by bank transfer (discounted). When they reserve, the artwork's Big Cartel product status is set to `hidden` (the API cannot change stock), a 15-minute timer starts, bank details are shown, and they upload a payment receipt. If no receipt within 15 minutes, status goes back to `active`. Admin verifies payment manually in a dashboard.
@@ -36,7 +36,7 @@ NEXT_PUBLIC_SITE_URL=          # e.g. https://pay.naomikatzart.com, used for lin
 - Required headers on every request:
   - `Accept: application/vnd.api+json`
   - `Content-Type: application/vnd.api+json` (when sending a body)
-  - `User-Agent: <name>/<version> (<contact>)` — missing it returns 400
+  - `User-Agent: <name>/<version> (<contact>)`: missing it returns 400
   - `Authorization: Basic base64(subdomain:password)`
 - Get products: `GET /accounts/{account_id}/products`
 - Get product: `GET /accounts/{account_id}/products/{product_id}?include=options` (options include `quantity`, read-only)
@@ -47,8 +47,8 @@ NEXT_PUBLIC_SITE_URL=          # e.g. https://pay.naomikatzart.com, used for lin
 - **Stock cannot be changed via the API.** Option `quantity` is read-only (tested: product PATCH ignores/rejects `options`; every option route 404s). `PATCH /products/{id}` only accepts `name, description, status, on_sale, permalink, password`.
 - **We lock artworks with `status`:** `PATCH` body `{"data":{"id":"<pid>","type":"products","attributes":{"status":"hidden"}}}`; restore with `"active"`. `sold-out` is rejected by the API (422), so use `hidden`.
 - **Tested behaviour of `hidden` (Oct 2026):** the product URL redirects to the store home; add-to-cart silently adds nothing; items already in a customer's cart are removed; `GET /checkout` redirects to `/cart`. Restoring to `active` makes the product purchasable again with quantity unchanged. (Not tested: a customer already on the external payment processor page when the status flips. That tiny window is covered by the `cron/orders` alerts.)
+- **Single-unit artworks only.** Hiding blocks every unit, so the portal refuses products with quantity > 1 (reserve returns 409 "not available", customer pages show "not offered"). Multi-unit support would need count-based locking plus manual stock edits in Big Cartel, so it is out of scope.
 - Hidden products are still readable via the API, so the portal gets name/price/image from the API, not the storefront.
-- **FIRST TASK (done):** `scripts/bc-test.ts` probes the API. Result: use the status approach above.
 
 ## Database (Supabase / Postgres)
 ```sql
@@ -62,7 +62,9 @@ create table reservations (
   amount numeric,                          -- AUD, after discount
   customer_name text not null,
   customer_email text not null,
-  shipping_address text not null,
+  shipping_address text not null,          -- composed from the structured fields below
+  phone text, street text, suburb text, state text, postcode text, country text,
+  ip_hash text,                            -- salted hash for rate limiting only, never the raw IP
   status text not null,                    -- locking | active | receipt_uploaded | sold | expired | released | failed
   original_status text,                    -- Big Cartel product status before we hid it; restored EXACTLY on expiry/release/cleanup
   expires_at timestamptz,
@@ -87,6 +89,15 @@ create table settings (
   updated_at timestamptz default now()
 );
 
+-- Pending email verifications. Nothing is held until a code is confirmed.
+create table email_verifications (
+  id uuid primary key, email text, ip_hash text, product_id text,
+  payload jsonb,            -- submitted form, reserved only after a correct code
+  code_hash text,           -- HMAC of the 6-digit code, never the code
+  attempts int default 0,   -- locked after 5 wrong guesses
+  consumed boolean default false, expires_at timestamptz, created_at timestamptz default now()
+);
+
 create table alerts (
   id uuid primary key default gen_random_uuid(),
   reservation_id uuid references reservations(id),
@@ -96,8 +107,17 @@ create table alerts (
 );
 ```
 
-## Reserve flow (POST /api/reserve) — must be race-safe
-1. Validate input (name, email, address, product_id, terms checkbox).
+## Email verification gate
+Customers must verify their email with a 6-digit code **before** anything is reserved or any bank detail is shown. There is no public reserve endpoint; `reserve()` is only reachable from `confirm`.
+- `POST /api/verify/start`: validates the form (all mandatory: full name, email, mobile with country code, street, suburb/city, state/province, postcode/ZIP, country, terms), rate-limits, checks the artwork is available, stores the form + a hashed code (valid 10 min) and emails the code (Resend). **The artwork is not touched.**
+- `POST /api/verify/confirm`: correct code (max 5 tries, counted atomically; one use only) -> runs the reserve flow below. The 15-minute timer starts here. If verification is never completed, nothing was held.
+- Rate limiting is DB-based: max 3 codes per email per 30 min, 8 per device (hashed IP) per hour, and no new codes after 3 expired reservations from the same email/device in 24h. A hidden honeypot field silently drops simple bots.
+- The mobile number is collected and stored but not verified (SMS verification was considered and dropped).
+- Dev only: with no `RESEND_API_KEY`, the code is printed to the server console. It is never logged in production.
+- Codes are HMACs keyed with `SESSION_SECRET`; rotating it invalidates pending codes (harmless, they last 10 minutes).
+
+## Reserve flow (internal `reserve()`, called after a correct code): must be race-safe
+1. Input already validated by `/api/verify/start`.
 2. INSERT reservation with `status='locking'`.
    - If unique index violation → return 409 "This artwork is currently reserved." STOP.
 3. Fetch product from Big Cartel. If `status` is not `active` or option quantity is 0 → set reservation `failed`, return 409. STOP.
@@ -117,10 +137,10 @@ create table alerts (
   - Also clean up `locking` rows older than 2 minutes (crash safety): restore `original_status` (if it was recorded), mark `failed`.
 - `POST /api/cron/orders` (every 2 minutes): fetch recent Big Cartel orders; if any order item matches a product with a live reservation → insert into `alerts` (dedupe by order id) and email admin.
 
-## Customer pages (match the 3 reference screens)
-1. `/reserve/[productId]` — "Official Naomi Katz Art Payment Portal", "Buy by bank transfer and save A$300", How it works (3 steps), Continue / Cancel.
-2. Details form — full name, email, shipping address, terms checkbox, "Reserve artwork & view bank details".
-3. `/reservation/[id]` — countdown timer, "PAY IN AUD ONLY" warning, amount, bank details with copy buttons, payment reference, receipt upload, info note.
+## Customer pages
+1. `/reserve/[productId]`: "Official Naomi Katz Art Payment Portal", "Buy by bank transfer and save A$300", How it works (3 steps), Continue / Cancel.
+2. Details form (8 mandatory fields + terms) -> "Email me a verification code" -> code step ("Verify & view bank details", resend after 60s, change details).
+3. `/reservation/[id]`: countdown timer, "PAY IN AUD ONLY" warning, amount, bank details with copy buttons, payment reference, receipt upload, info note.
 - Also show product image + name. Mobile-first. Font should match the main store (TBC).
 - Handle states: reserved by someone else, expired, receipt uploaded (thank-you state).
 
@@ -141,8 +161,3 @@ A button on product pages linking to `https://pay.naomikatzart.com/reserve/{{ pr
 - Every state change goes through a single server function so Big Cartel status and DB never drift.
 - Log every Big Cartel API call result (success/failure) to the console.
 - Keep dependencies minimal.
-
-## Deliverables
-- Working app deployed on Netlify
-- `docs/INSTALL.md`: env setup, Supabase SQL, cron-job.org setup, theme snippet, how to update the Big Cartel password
-- `docs/ADMIN_GUIDE.md`: simple guide for the client

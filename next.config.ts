@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  agentRules: false,
   /* config options here */
   // Every page here is live data (reservations, stock, admin), so Cache Components is off.
   turbopack: {
