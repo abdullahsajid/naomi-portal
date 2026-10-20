@@ -1,4 +1,5 @@
 import { getProduct, type BcProduct } from "./bigcartel";
+import { expireDueForProduct } from "./reservations";
 import { db } from "./supabase";
 
 export async function getSettings() {
@@ -16,6 +17,8 @@ export async function getAvailability(productId: string): Promise<Availability> 
   const settings = await getSettings();
   const enabled: string[] = settings?.enabled_product_ids ?? [];
   if (enabled.length > 0 && !enabled.includes(productId)) return { available: false, reason: "not-offered" };
+
+  await expireDueForProduct(productId);
 
   let product: BcProduct;
   try {

@@ -1,6 +1,7 @@
 import { bcGet } from "./bigcartel";
 import { parseOrders } from "./order-parse";
 import { sendEmail } from "./email";
+import { adminConflictEmail } from "./email-templates";
 import { db } from "./supabase";
 
 /**
@@ -36,11 +37,7 @@ export async function checkOrders() {
       continue; // already alerted for this order
     }
     created++;
-    await sendEmail(
-      process.env.ADMIN_EMAIL ?? "",
-      `Conflict: card order for reserved artwork (${hit.reference})`,
-      `${message}\n\n${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/admin/alerts`,
-    );
+    await sendEmail(process.env.ADMIN_EMAIL ?? "", adminConflictEmail({ message, reference: hit.reference }));
   }
   return { checked: orders.length, alerts: created };
 }

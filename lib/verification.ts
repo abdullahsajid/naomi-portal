@@ -1,6 +1,7 @@
 import { createHmac, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { getAvailability } from "./availability";
 import { sendEmail } from "./email";
+import { verificationCodeEmail } from "./email-templates";
 import { env } from "./env";
 import { reserve, validateReserve, type ReserveInput } from "./reservations";
 import { db } from "./supabase";
@@ -102,11 +103,7 @@ export async function startVerification(body: any, ip: string): Promise<StartRes
   if (!process.env.RESEND_API_KEY && process.env.NODE_ENV !== "production") {
     console.log(`[verify] DEV ONLY, code for ${input.email}: ${code}`);
   }
-  await sendEmail(
-    input.email,
-    `Your verification code: ${code}`,
-    `Hi ${input.name},\n\nYour Naomi Katz Art verification code is ${code}\n\nIt's valid for ${CODE_TTL_MIN} minutes. Once you enter it, your artwork is reserved for you for 15 minutes.\n\nIf you didn't request this, you can ignore this email, nothing has been reserved.\n\nNaomi Katz Art`,
-  );
+  await sendEmail(input.email, verificationCodeEmail({ name: input.name, code, ttlMin: CODE_TTL_MIN }));
   return { ok: true, verificationId: id };
 }
 

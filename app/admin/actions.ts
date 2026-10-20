@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { checkPassword, endSession, requireAdmin, startSession } from "@/lib/admin-auth";
 import { setProductStatus } from "@/lib/bigcartel";
 import { sendEmail } from "@/lib/email";
+import { paymentConfirmedEmail } from "@/lib/email-templates";
 import { closeReservation } from "@/lib/reservations";
 import { db } from "@/lib/supabase";
 
@@ -32,8 +33,7 @@ export async function markSold(form: FormData) {
     if (r) {
       await sendEmail(
         r.customer_email,
-        `Payment confirmed – ${r.reference}`,
-        `Hi ${r.customer_name},\n\nWe've confirmed your payment for ${r.product_name}. Thank you! We'll be in touch about shipping.\nReference: ${r.reference}\n\nNaomi Katz Art`,
+        paymentConfirmedEmail({ name: r.customer_name, product: r.product_name, reference: r.reference }),
       );
     }
   }

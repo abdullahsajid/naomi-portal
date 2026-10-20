@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { getProduct, setProductStatus } from "./bigcartel";
 import { sendEmail } from "./email";
+import { reservationExpiredEmail, reservationStartedEmail } from "./email-templates";
 import { reservationMinutes } from "./env";
 import { db } from "./supabase";
 
@@ -86,6 +87,8 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
     return { ok: false, status: 404, error: "Bank transfer is not available for this artwork." };
   }
   const discount = Number(settings?.discount_amount ?? 300);
+
+  await expireDueForProduct(input.productId);
 
   // 2. INSERT with status=locking. Unique index violation on product_id = someone else has it.
   let row: { id: string; reference: string } | null = null;
@@ -176,11 +179,9 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
   }
 
   // 6. Email (never blocks).
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "";
   await sendEmail(
     input.email,
-    `Your reservation ${row.reference} - ${product.name}`,
-    `Hi ${input.name},\n\n${product.name} is reserved for you for ${minutes} minutes.\nReference: ${row.reference}\n\nComplete your payment and upload your receipt here:\n${base}/reservation/${row.id}\n\nNaomi Katz Art`,
+    reservationStartedEmail({ name: input.name, product: product.name, reference: row.reference, minutes, id: row.id }),
   );
   return { ok: true, id: row.id, reference: row.reference };
 }
@@ -213,6 +214,29 @@ export async function closeReservation(id: string, to: ClosingStatus): Promise<b
   return (updated?.length ?? 0) > 0;
 }
 
+async function expireRow(r: any): Promise<boolean> {
+  if (!(await closeReservation(r.id, "expired"))) return false;
+  await sendEmail(
+    r.customer_email,
+    reservationExpiredEmail({ name: r.customer_name, product: r.product_name, reference: r.reference }),
+  );
+  return true;
+}
+
+/**
+ * Lazy expiry: if a timed-out reservation still holds this artwork (cron late or down), close it now.
+ * Runs before availability checks and before the lock insert, so the cron is a backup, not a dependency.
+ */
+export async function expireDueForProduct(productId: string): Promise<void> {
+  const { data: due } = await db()
+    .from("reservations")
+    .select("*")
+    .eq("product_id", productId)
+    .eq("status", "active")
+    .lt("expires_at", new Date().toISOString());
+  for (const r of due ?? []) await expireRow(r);
+}
+
 /** Cron: expire timed-out reservations and clean up crashed `locking` rows. */
 export async function expireReservations() {
   const supabase = db();
@@ -223,16 +247,7 @@ export async function expireReservations() {
     .select("*")
     .eq("status", "active")
     .lt("expires_at", new Date().toISOString());
-  for (const r of due ?? []) {
-    if (await closeReservation(r.id, "expired")) {
-      out.expired++;
-      await sendEmail(
-        r.customer_email,
-        `Reservation ${r.reference} expired`,
-        `Hi ${r.customer_name},\n\nYour reservation for ${r.product_name} expired because we did not receive a receipt in time. The artwork is available again.\n\nNaomi Katz Art`,
-      );
-    }
-  }
+  for (const r of due ?? []) if (await expireRow(r)) out.expired++;
 
   // Pending verification rows hold customer details, so don't keep them around.
   await supabase

@@ -1,4 +1,5 @@
 import { sendEmail } from "./email";
+import { adminNewReceiptEmail, receiptReceivedEmail } from "./email-templates";
 import { db } from "./supabase";
 
 // Netlify functions cap request bodies at ~6MB (less after base64), so stay under that.
@@ -53,17 +54,14 @@ export async function submitReceipt(id: string, file: File | null): Promise<Rece
     return { ok: false, status: 409, error: "This reservation expired before the upload finished." };
   }
 
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "";
   await Promise.all([
     sendEmail(
       r.customer_email,
-      `Receipt received – ${r.reference}`,
-      `Hi ${r.customer_name},\n\nThanks, we've received your payment receipt for ${r.product_name}. Your artwork is held for you while we verify the payment.\nReference: ${r.reference}\n\nNaomi Katz Art`,
+      receiptReceivedEmail({ name: r.customer_name, product: r.product_name, reference: r.reference }),
     ),
     sendEmail(
       process.env.ADMIN_EMAIL ?? "",
-      `New receipt – ${r.reference} (${r.product_name})`,
-      `${r.customer_name} (${r.customer_email}) uploaded a receipt for ${r.product_name}.\nReference: ${r.reference}\n\nReview it: ${base}/admin/reservations/${r.id}`,
+      adminNewReceiptEmail({ customer: r.customer_name, email: r.customer_email, product: r.product_name, reference: r.reference, id: r.id }),
     ),
   ]);
   return { ok: true };
