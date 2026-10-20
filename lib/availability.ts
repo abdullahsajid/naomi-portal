@@ -1,4 +1,4 @@
-import { getProduct, type BcProduct } from "./bigcartel";
+import { BcError, getProduct, type BcProduct } from "./bigcartel";
 import { expireDueForProduct } from "./reservations";
 import { db } from "./supabase";
 
@@ -9,7 +9,7 @@ export async function getSettings() {
 
 export type Availability =
   | { available: true; product: BcProduct; discount: number }
-  | { available: false; reason: "reserved" | "not-offered" | "not-found" };
+  | { available: false; reason: "reserved" | "not-offered" | "not-found" | "error" };
 
 /** Used by the customer pages to decide whether to show the reserve flow. */
 export async function getAvailability(productId: string): Promise<Availability> {
@@ -23,8 +23,9 @@ export async function getAvailability(productId: string): Promise<Availability> 
   let product: BcProduct;
   try {
     product = await getProduct(productId);
-  } catch {
-    return { available: false, reason: "not-found" };
+  } catch (e) {
+    // 404 = no such artwork. Anything else (timeout, Big Cartel down, bad credentials) is on our side.
+    return { available: false, reason: e instanceof BcError && e.status === 404 ? "not-found" : "error" };
   }
 
   // Single-unit artworks only: hiding a product would also block the other units.

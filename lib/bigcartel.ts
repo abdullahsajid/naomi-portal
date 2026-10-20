@@ -15,22 +15,41 @@ export type BcProduct = {
   quantity: number;
 };
 
+/** status 0 = the request never got an answer (timeout, network). */
+export class BcError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+const TIMEOUT_MS = 8000; // Netlify functions stop at ~10s, so fail fast and show a friendly message
+
 async function bc(method: string, path: string, body?: unknown) {
+  // Read config first so a missing variable is reported as that, not as "no response".
   const auth = Buffer.from(`${env("BIGCARTEL_SUBDOMAIN")}:${env("BIGCARTEL_PASSWORD")}`).toString("base64");
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    cache: "no-store",
-    headers: {
-      Accept: "application/vnd.api+json",
-      ...(body ? { "Content-Type": "application/vnd.api+json" } : {}),
-      "User-Agent": env("BIGCARTEL_USER_AGENT"),
-      Authorization: `Basic ${auth}`,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.api+json",
+    "User-Agent": env("BIGCARTEL_USER_AGENT"),
+    Authorization: `Basic ${auth}`,
+  };
+  if (body) headers["Content-Type"] = "application/vnd.api+json";
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      cache: "no-store",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    console.log(`[BC] ${method} ${path} -> no response (${(e as Error).name})`);
+    throw new BcError(0, `Big Cartel ${method} ${path} got no response`);
+  }
   const text = await res.text();
   console.log(`[BC] ${method} ${path} -> ${res.status}${res.ok ? "" : " " + text.slice(0, 300)}`);
-  if (!res.ok) throw new Error(`Big Cartel ${method} ${path} failed (${res.status})`);
+  if (!res.ok) throw new BcError(res.status, `Big Cartel ${method} ${path} failed (${res.status})`);
   return text ? JSON.parse(text) : null;
 }
 

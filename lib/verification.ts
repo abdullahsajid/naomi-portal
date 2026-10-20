@@ -75,11 +75,13 @@ export async function startVerification(body: any, ip: string): Promise<StartRes
   // Don't send a code for an artwork nobody can reserve.
   const a = await getAvailability(input.productId);
   if (!a.available) {
-    return {
-      ok: false,
-      status: 409,
-      error: a.reason === "reserved" ? "This artwork is currently reserved." : "Bank transfer isn't available for this artwork.",
-    };
+    const reply = {
+      reserved: { status: 409, error: "This artwork is currently reserved." },
+      "not-offered": { status: 409, error: "Bank transfer isn't available for this artwork." },
+      "not-found": { status: 404, error: "We couldn't find that artwork." },
+      error: { status: 503, error: "We couldn't reach the store just now. Nothing was reserved. Please try again in a minute." },
+    }[a.reason];
+    return { ok: false, ...reply };
   }
 
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");

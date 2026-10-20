@@ -9,6 +9,10 @@ const COPY = {
     title: "Bank transfer isn't available for this artwork",
     body: "Please purchase this artwork through the store checkout.",
   },
+  error: {
+    title: "We're having trouble right now",
+    body: "We couldn't reach the store just now. Nothing has been reserved. Please try again in a minute.",
+  },
   "not-found": {
     title: "We couldn't find that artwork",
     body: "Please go back to the store and try again.",

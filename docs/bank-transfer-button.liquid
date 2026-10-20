@@ -1,16 +1,18 @@
 {%- comment -%}
   Naomi Katz Art: "Buy by bank transfer" button.
-  Paste this into the product page template, directly under the Add to cart button.
-  It only shows while the product is purchasable (status "active"). When an artwork is
-  reserved by someone else, the portal hides the product on the store, so the whole page
-  (and this button) disappears until the reservation ends.
+  Paste into the Product page template, directly under the Add to cart button.
+
+  It only shows while the product is purchasable (status "active"). When an artwork is reserved,
+  the portal hides the product on the store, so the whole page and this button disappear until
+  the reservation ends.
+
+  Set the portal address below: the Netlify address while testing, https://pay.naomikatzart.com live.
 {%- endcomment -%}
 {% if product.status == 'active' %}
-  <a class="bank-transfer-button"
-     href="https://pay.naomikatzart.com/reserve/{{ product.id }}"
+  <a href="https://pay.naomikatzart.com/reserve/{{ product.id }}"
      style="display:block;margin-top:12px;padding:14px 18px;text-align:center;
-            border:1px solid #b3123f;border-radius:8px;color:#b3123f;
+            border:1px solid #d64fe7;border-radius:8px;color:#8a1c9b;
             font-weight:600;text-decoration:none;">
-    Buy by bank transfer and save A$300
+    Buy by bank transfer
   </a>
 {% endif %}
