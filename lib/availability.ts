@@ -9,7 +9,7 @@ export async function getSettings() {
 
 export type Availability =
   | { available: true; product: BcProduct; discount: number }
-  | { available: false; reason: "reserved" | "not-offered" | "not-found" | "error" };
+  | { available: false; reason: "reserved" | "unavailable" | "not-offered" | "not-found" | "error" };
 
 /** Used by the customer pages to decide whether to show the reserve flow. */
 export async function getAvailability(productId: string): Promise<Availability> {
@@ -37,9 +37,9 @@ export async function getAvailability(productId: string): Promise<Availability> 
     .eq("product_id", productId)
     .in("status", ["locking", "active", "receipt_uploaded"])
     .limit(1);
-  if ((live?.length ?? 0) > 0 || product.status !== "active" || product.quantity < 1) {
-    return { available: false, reason: "reserved" };
-  }
+  if ((live?.length ?? 0) > 0) return { available: false, reason: "reserved" };
+  // Not ours to hold: sold elsewhere, hidden by the owner, or not on sale yet.
+  if (product.status !== "active" || product.quantity < 1) return { available: false, reason: "unavailable" };
   return { available: true, product, discount: Number(settings?.discount_amount ?? 300) };
 }
 

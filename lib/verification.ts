@@ -16,8 +16,8 @@ const CODE_TTL_MIN = 10;
 const MAX_ATTEMPTS = 5;
 const LIMITS = {
   codesPerEmail: { max: 3, windowMin: 30 },
-  codesPerIp: { max: 8, windowMin: 60 },
-  unfinishedPer24h: 3, // expired reservations from the same email or device in 24h
+  codesPerIp: { max: 20, windowMin: 60 },
+  unfinishedPer24h: { email: 3, ip: 8 }, // expired reservations in 24h; a shared IP (cafe, mobile network) gets more room
 };
 
 export type StartResult =
@@ -57,18 +57,17 @@ export async function startVerification(body: any, ip: string): Promise<StartRes
   const ipHash = hashIp(ip);
 
   // Rate limiting (database counts, no extra service).
-  const byEmail = await count("email_verifications", (q) =>
-    q.eq("email", input.email).gt("created_at", minutesAgo(LIMITS.codesPerEmail.windowMin)));
-  const byIp = await count("email_verifications", (q) =>
-    q.eq("ip_hash", ipHash).gt("created_at", minutesAgo(LIMITS.codesPerIp.windowMin)));
+  const dayAgo = minutesAgo(24 * 60);
+  const [byEmail, byIp, expiredByEmail, expiredByIp] = await Promise.all([
+    count("email_verifications", (q) => q.eq("email", input.email).gt("created_at", minutesAgo(LIMITS.codesPerEmail.windowMin))),
+    count("email_verifications", (q) => q.eq("ip_hash", ipHash).gt("created_at", minutesAgo(LIMITS.codesPerIp.windowMin))),
+    count("reservations", (q) => q.eq("customer_email", input.email).eq("status", "expired").gt("created_at", dayAgo)),
+    count("reservations", (q) => q.eq("ip_hash", ipHash).eq("status", "expired").gt("created_at", dayAgo)),
+  ]);
   if (byEmail >= LIMITS.codesPerEmail.max || byIp >= LIMITS.codesPerIp.max) {
     return { ok: false, status: 429, error: "Too many attempts. Please wait a little while and try again." };
   }
-  const dayAgo = minutesAgo(24 * 60);
-  const unfinished =
-    (await count("reservations", (q) => q.eq("customer_email", input.email).eq("status", "expired").gt("created_at", dayAgo))) +
-    (await count("reservations", (q) => q.eq("ip_hash", ipHash).eq("status", "expired").gt("created_at", dayAgo)));
-  if (unfinished >= LIMITS.unfinishedPer24h) {
+  if (expiredByEmail >= LIMITS.unfinishedPer24h.email || expiredByIp >= LIMITS.unfinishedPer24h.ip) {
     return { ok: false, status: 429, error: "Too many unfinished reservations. Please try again tomorrow." };
   }
 
@@ -77,6 +76,7 @@ export async function startVerification(body: any, ip: string): Promise<StartRes
   if (!a.available) {
     const reply = {
       reserved: { status: 409, error: "This artwork is currently reserved." },
+      unavailable: { status: 409, error: "This artwork isn't available right now." },
       "not-offered": { status: 409, error: "Bank transfer isn't available for this artwork." },
       "not-found": { status: 404, error: "We couldn't find that artwork." },
       error: { status: 503, error: "We couldn't reach the store just now. Nothing was reserved. Please try again in a minute." },
@@ -105,7 +105,12 @@ export async function startVerification(body: any, ip: string): Promise<StartRes
   if (!process.env.RESEND_API_KEY && process.env.NODE_ENV !== "production") {
     console.log(`[verify] DEV ONLY, code for ${input.email}: ${code}`);
   }
-  await sendEmail(input.email, verificationCodeEmail({ name: input.name, code, ttlMin: CODE_TTL_MIN }));
+  const sent = await sendEmail(input.email, verificationCodeEmail({ name: input.name, code, ttlMin: CODE_TTL_MIN }));
+  if (sent === "failed") {
+    // Don't leave the customer waiting for a code that will never come, and don't burn their quota.
+    await db().from("email_verifications").delete().eq("id", id);
+    return { ok: false, status: 502, error: "We couldn't send the email. Please check the address and try again in a minute." };
+  }
   return { ok: true, verificationId: id };
 }
 
@@ -152,5 +157,10 @@ export async function confirmVerification(id: string, code: string): Promise<Con
     .select("id");
   if (!used?.length) return { ok: false, status: 400, error: "That code has already been used." };
 
-  return reserve(row.payload as ReserveInput, row.ip_hash);
+  const result = await reserve(row.payload as ReserveInput, row.ip_hash);
+  if (!result.ok && result.status >= 500) {
+    // Our side or Big Cartel failed, not the customer's code: let them press Verify again.
+    await supabase.from("email_verifications").update({ consumed: false }).eq("id", id);
+  }
+  return result;
 }

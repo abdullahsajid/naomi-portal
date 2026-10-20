@@ -5,6 +5,10 @@ const COPY = {
     title: "This artwork is currently reserved",
     body: "Someone else is completing a bank transfer for this artwork right now. If they don't finish in time it becomes available again, so please check back in a little while.",
   },
+  unavailable: {
+    title: "This artwork isn't available right now",
+    body: "It may have been sold, or it isn't currently for sale. Please check the store for other artworks.",
+  },
   "not-offered": {
     title: "Bank transfer isn't available for this artwork",
     body: "Please purchase this artwork through the store checkout.",

@@ -59,7 +59,10 @@ const account = () => `/accounts/${env("BIGCARTEL_ACCOUNT_ID")}`;
 export const bcGet = (path: string) => bc("GET", `${account()}${path}`);
 
 function parseProduct(data: any, included: any[] = []): BcProduct {
-  const option = included.find((i) => i.type === "product_options");
+  const options = included.filter((i) => i.type === "product_options");
+  // Units we could sell. Untracked stock ("no limit") comes back without a quantity: treat as one.
+  const units = options.reduce((n, o) => n + (o.attributes?.quantity == null ? 1 : Number(o.attributes.quantity)), 0);
+  const option = options.find((o) => Number(o.attributes?.quantity ?? 1) > 0) ?? options[0];
   return {
     id: data.id,
     name: data.attributes.name,
@@ -68,7 +71,7 @@ function parseProduct(data: any, included: any[] = []): BcProduct {
     imageUrl: data.attributes.primary_image_url ?? null,
     url: data.attributes.url ?? null,
     optionId: option?.id ?? null,
-    quantity: Number(option?.attributes?.quantity ?? 0),
+    quantity: units,
   };
 }
 

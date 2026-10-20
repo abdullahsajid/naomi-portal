@@ -10,7 +10,17 @@ const TYPES: Record<string, string> = {
   "image/png": "png",
   "image/webp": "webp",
   "image/heic": "heic",
+  "image/heif": "heif",
   "application/pdf": "pdf",
+};
+const BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+  pdf: "application/pdf",
 };
 
 export type ReceiptResult = { ok: true } | { ok: false; status: number; error: string };
@@ -20,7 +30,10 @@ export async function submitReceipt(id: string, file: File | null): Promise<Rece
   if (!file || typeof file === "string" || file.size === 0) {
     return { ok: false, status: 400, error: "Please choose a file." };
   }
-  const ext = TYPES[file.type];
+  // Some phones send an empty or generic type; fall back to the file extension.
+  const named = BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() ?? ""];
+  const type = TYPES[file.type] ? file.type : !file.type || file.type === "application/octet-stream" ? (named ?? "") : "";
+  const ext = TYPES[type];
   if (!ext) return { ok: false, status: 400, error: "Please upload an image (JPG, PNG, WEBP, HEIC) or a PDF." };
   if (file.size > MAX_RECEIPT_BYTES) {
     return { ok: false, status: 413, error: `That file is too large. Please keep it under ${MAX_RECEIPT_BYTES / 1024 / 1024}MB.` };
@@ -35,7 +48,7 @@ export async function submitReceipt(id: string, file: File | null): Promise<Rece
   const path = `${id}/${Date.now()}.${ext}`;
   const { error: upErr } = await supabase.storage
     .from("receipts")
-    .upload(path, await file.arrayBuffer(), { contentType: file.type, upsert: false });
+    .upload(path, await file.arrayBuffer(), { contentType: type, upsert: false });
   if (upErr) {
     console.error("[receipt] storage upload failed", upErr);
     return { ok: false, status: 500, error: "Upload failed. Please try again." };

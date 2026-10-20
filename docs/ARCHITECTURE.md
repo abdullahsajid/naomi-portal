@@ -161,3 +161,27 @@ A button on product pages linking to `https://pay.naomikatzart.com/reserve/{{ pr
 - Every state change goes through a single server function so Big Cartel status and DB never drift.
 - Log every Big Cartel API call result (success/failure) to the console.
 - Keep dependencies minimal.
+
+## What happens when something fails
+
+The rule: a failure never leaves an artwork hidden with nobody holding it, and never leaves a customer waiting for something that will not arrive.
+
+| Failure | What the customer sees | What the system does |
+|---|---|---|
+| Big Cartel down, slow (8 s timeout) or login rejected | "We're having trouble right now, nothing was reserved" | Nothing is held. If it happens after a correct code, the code is not used up and Verify can be pressed again |
+| Big Cartel login rejected (changed password) | As above | The orders job (every 2 min) emails the owner once an hour: update `BIGCARTEL_PASSWORD` in Netlify and redeploy |
+| Verification email cannot be sent (Resend error) | "We couldn't send the email, try again" | The pending code is deleted so the attempt does not count against the limits |
+| Artwork reserved by someone else | "This artwork is currently reserved" | No code is sent |
+| Artwork sold elsewhere or hidden by the owner | "This artwork isn't available right now" | No code is sent |
+| Artwork id does not exist | "We couldn't find that artwork" | No code is sent |
+| Product has more than one unit | "Bank transfer isn't available" | Never hidden (hiding would block the other units) |
+| Cron job late or down | Nothing visible | A timed-out hold is closed the next time anyone opens, verifies or reserves that artwork. The cron is a backup, not a dependency |
+| Product deleted on Big Cartel while reserved | Nothing | The reservation is closed anyway instead of retrying forever |
+| Restoring the product on Big Cartel fails | Reservation shows as ended | The row stays live and is retried every minute, so the database and the store never disagree |
+| Two customers verify at the same moment | One succeeds, the other is told it is reserved | The unique index decides |
+| Receipt upload after the timer ran out | "This reservation is no longer active" | The uploaded file is removed |
+| Receipt over 4 MB, wrong type, or phone sends no file type | Clear message before upload; type is also checked by file extension | Server enforces the same limits |
+| Double click on any button | One action only | Buttons are disabled while a request runs; the server also ignores a repeat |
+| Supabase unreachable | "Something went wrong, try again" | Nothing is held |
+
+Not covered: nothing restricts repeated wrong passwords on `/admin/login` beyond an 800 ms delay, so keep `ADMIN_PASSWORD` long and random.

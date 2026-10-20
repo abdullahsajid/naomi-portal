@@ -244,13 +244,28 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
+const MAX_RECEIPT_BYTES = 4 * 1024 * 1024; // same limit the server enforces
+
 function UploadCard({ id, onUploaded }: { id: string; onUploaded: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function choose(f: File | null) {
+    setFile(f);
+    if (f && f.size > MAX_RECEIPT_BYTES) {
+      setError("That file is too large. Please choose one under 4MB (a screenshot usually works).");
+    } else {
+      setError(null);
+    }
+  }
+
   async function upload() {
     if (!file || busy) return;
+    if (file.size > MAX_RECEIPT_BYTES) {
+      setError("That file is too large. Please choose one under 4MB (a screenshot usually works).");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -284,10 +299,7 @@ function UploadCard({ id, onUploaded }: { id: string; onUploaded: () => void }) 
           type="file"
           accept="image/*,application/pdf"
           className="sr-only"
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null);
-            setError(null);
-          }}
+          onChange={(e) => choose(e.target.files?.[0] ?? null)}
         />
       </label>
       {error && (

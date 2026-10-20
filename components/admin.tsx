@@ -25,7 +25,17 @@ export function timeLeft(expiresAt: string | null, status: string) {
 }
 
 export const fmtDate = (d: string | null) =>
-  d ? new Date(d).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" }) : "–";
+  d
+    ? new Date(d).toLocaleString("en-AU", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "Australia/Sydney",
+        timeZoneName: "short",
+      })
+    : "–";
 
 export const money = (n: number | null) => (n == null ? "–" : `A$${Number(n).toFixed(2)}`);
 

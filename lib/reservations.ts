@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { getProduct, setProductStatus } from "./bigcartel";
+import { BcError, getProduct, setProductStatus } from "./bigcartel";
 import { sendEmail } from "./email";
 import { reservationExpiredEmail, reservationStartedEmail } from "./email-templates";
 import { reservationMinutes } from "./env";
@@ -81,14 +81,15 @@ async function markFailed(id: string) {
 export async function reserve(input: ReserveInput, ipHash: string | null = null): Promise<ReserveResult> {
   const supabase = db();
 
-  const { data: settings } = await supabase.from("settings").select("*").eq("id", 1).maybeSingle();
+  const [{ data: settings }] = await Promise.all([
+    supabase.from("settings").select("*").eq("id", 1).maybeSingle(),
+    expireDueForProduct(input.productId), // free a timed-out hold on this artwork first
+  ]);
   const enabled: string[] = settings?.enabled_product_ids ?? [];
   if (enabled.length > 0 && !enabled.includes(input.productId)) {
     return { ok: false, status: 404, error: "Bank transfer is not available for this artwork." };
   }
   const discount = Number(settings?.discount_amount ?? 300);
-
-  await expireDueForProduct(input.productId);
 
   // 2. INSERT with status=locking. Unique index violation on product_id = someone else has it.
   let row: { id: string; reference: string } | null = null;
@@ -132,7 +133,7 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
   }
   if (product.status !== "active" || product.quantity < 1 || !product.optionId) {
     await markFailed(row.id);
-    return { ok: false, status: 409, error: "This artwork is currently reserved." };
+    return { ok: false, status: 409, error: "This artwork isn't available right now." };
   }
   // Hiding is all-or-nothing, so it is only safe for single-unit artworks (see docs/ARCHITECTURE.md).
   if (product.quantity > 1) {
@@ -199,10 +200,14 @@ export async function closeReservation(id: string, to: ClosingStatus): Promise<b
   if (to !== "sold" && r.original_status) {
     try {
       await setProductStatus(r.product_id, r.original_status);
-    } catch {
-      // Row stays live so the cron retries; DB and Big Cartel never drift.
-      console.error(`[close] could not restore ${r.product_id}; leaving ${id} live`);
-      return false;
+    } catch (e) {
+      if (e instanceof BcError && e.status === 404) {
+        console.log(`[close] product ${r.product_id} no longer exists on Big Cartel; closing ${id} anyway`);
+      } else {
+        // Row stays live so the cron retries; DB and Big Cartel never drift.
+        console.error(`[close] could not restore ${r.product_id}; leaving ${id} live`);
+        return false;
+      }
     }
   }
   const { data: updated } = await supabase

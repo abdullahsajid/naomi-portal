@@ -198,3 +198,20 @@ export function adminConflictEmail(o: { message: string; reference: string }): M
     }),
   };
 }
+
+export function adminBigCartelProblemEmail(o: { detail: string }): Mail {
+  const url = siteUrl() ? `${siteUrl()}/admin/stock` : "";
+  return {
+    subject: "Action needed: the portal can't log in to Big Cartel",
+    text: `The portal could not log in to Big Cartel (${o.detail}). Customers cannot reserve artworks until this is fixed.\n\nThe usual cause is a changed Big Cartel password. Update BIGCARTEL_PASSWORD in Netlify (Site configuration > Environment variables) and redeploy.\n\n${url}`,
+    html: layout({
+      preheader: "Customers can't reserve artworks until this is fixed",
+      heading: "The portal can't reach Big Cartel",
+      intro:
+        p(`The portal could not log in to Big Cartel (${esc(o.detail)}). Until this is fixed, customers can&rsquo;t reserve artworks and expired reservations can&rsquo;t be released.`) +
+        p("The usual cause is a changed Big Cartel password."),
+      button: url ? { label: "Check the stock page", href: url } : undefined,
+      outro: "To fix it: update <strong>BIGCARTEL_PASSWORD</strong> in Netlify (Site configuration, Environment variables), then redeploy.",
+    }),
+  };
+}
