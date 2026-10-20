@@ -1,5 +1,6 @@
 import { BcError, getProduct, type BcProduct } from "./bigcartel";
 import { expireDueForProduct } from "./reservations";
+import { countLive, countTaken, isHeldByUs } from "./stock";
 import { db } from "./supabase";
 
 export async function getSettings() {
@@ -8,7 +9,7 @@ export async function getSettings() {
 }
 
 export type Availability =
-  | { available: true; product: BcProduct; discount: number }
+  | { available: true; product: BcProduct; discount: number; unitsLeft: number }
   | { available: false; reason: "reserved" | "unavailable" | "not-offered" | "not-found" | "error" };
 
 /** Used by the customer pages to decide whether to show the reserve flow. */
@@ -28,19 +29,19 @@ export async function getAvailability(productId: string): Promise<Availability> 
     return { available: false, reason: e instanceof BcError && e.status === 404 ? "not-found" : "error" };
   }
 
-  // Single-unit artworks only: hiding a product would also block the other units.
-  if (product.quantity > 1) return { available: false, reason: "not-offered" };
-
-  const { data: live } = await db()
-    .from("reservations")
-    .select("id")
-    .eq("product_id", productId)
-    .in("status", ["locking", "active", "receipt_uploaded"])
-    .limit(1);
-  if ((live?.length ?? 0) > 0) return { available: false, reason: "reserved" };
-  // Not ours to hold: sold elsewhere, hidden by the owner, or not on sale yet.
+  // Hidden: ours (every unit is held) or the owner's.
+  if (product.status === "hidden") {
+    return { available: false, reason: (await isHeldByUs(productId)) ? "reserved" : "unavailable" };
+  }
+  // Sold elsewhere, or not on sale yet.
   if (product.status !== "active" || product.quantity < 1) return { available: false, reason: "unavailable" };
-  return { available: true, product, discount: Number(settings?.discount_amount ?? 300) };
+
+  // Units left = Big Cartel's stock minus the units we are holding or have sold but not yet taken off the stock.
+  const taken = await countTaken(productId);
+  if (taken >= product.quantity) {
+    return { available: false, reason: (await countLive(productId)) > 0 ? "reserved" : "unavailable" };
+  }
+  return { available: true, product, discount: Number(settings?.discount_amount ?? 300), unitsLeft: product.quantity - taken };
 }
 
 export const aud = (n: number) =>

@@ -6,7 +6,8 @@ import { checkPassword, endSession, requireAdmin, startSession } from "@/lib/adm
 import { setProductStatus } from "@/lib/bigcartel";
 import { sendEmail } from "@/lib/email";
 import { paymentConfirmedEmail } from "@/lib/email-templates";
-import { closeReservation } from "@/lib/reservations";
+import { closeReservation, markStockSynced } from "@/lib/reservations";
+import { countTaken, isHeldByUs } from "@/lib/stock";
 import { db } from "@/lib/supabase";
 
 export async function login(_prev: { error?: string } | undefined, form: FormData) {
@@ -41,6 +42,15 @@ export async function markSold(form: FormData) {
   redirect(`/admin/reservations/${id}`);
 }
 
+/** The owner has lowered the stock in Big Cartel for a sold artwork: stop counting that unit. */
+export async function confirmStockUpdated(form: FormData) {
+  await requireAdmin();
+  const id = String(form.get("id"));
+  await markStockSynced(id);
+  revalidatePath("/admin", "layout");
+  redirect(`/admin/reservations/${id}`);
+}
+
 export async function releaseReservation(form: FormData) {
   await requireAdmin();
   const id = String(form.get("id"));
@@ -65,13 +75,8 @@ export async function setStatus(form: FormData) {
   const productId = String(form.get("productId"));
   const status = String(form.get("status"));
   if (status !== "active" && status !== "hidden") return;
-  const { data: live } = await db()
-    .from("reservations")
-    .select("id")
-    .eq("product_id", productId)
-    .in("status", ["locking", "active", "receipt_uploaded"])
-    .limit(1);
-  if (live?.length) return;
+  // Artworks with holds, unsynced sales or a hide of ours are managed by the reservations, not by hand.
+  if ((await countTaken(productId)) > 0 || (await isHeldByUs(productId))) return;
   await setProductStatus(productId, status);
   revalidatePath("/admin/stock");
 }

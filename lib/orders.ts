@@ -1,7 +1,8 @@
-import { bcGet } from "./bigcartel";
+import { bcGet, getProduct } from "./bigcartel";
 import { parseOrders } from "./order-parse";
 import { sendEmail } from "./email";
 import { adminConflictEmail } from "./email-templates";
+import { countTaken } from "./stock";
 import { db } from "./supabase";
 
 /**
@@ -28,7 +29,12 @@ export async function checkOrders() {
     );
     if (!hit) continue;
 
-    const message = `Big Cartel order #${order.id} includes "${hit.product_name}", which is reserved by ${hit.customer_name} (${hit.reference}). Check which payment to honour and refund the other.`;
+    // With several units, a card order is only a problem when we now hold more units than still exist
+    // (Big Cartel's stock already dropped by the card order; our holds are not in it).
+    const [product, taken] = await Promise.all([getProduct(hit.product_id), countTaken(hit.product_id)]);
+    if (taken <= product.quantity) continue;
+
+    const message = `Big Cartel order #${order.id} includes "${hit.product_name}", which is reserved by ${hit.customer_name} (${hit.reference}), but there are not enough units left for every reservation. Decide who gets it and refund the other payment.`;
     const { error } = await supabase
       .from("alerts")
       .insert({ reservation_id: hit.id, bigcartel_order_id: order.id, message });

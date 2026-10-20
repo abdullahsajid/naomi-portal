@@ -59,6 +59,9 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
                   <td className="px-3 py-2.5 whitespace-nowrap">{money(r.amount)}</td>
                   <td className="px-3 py-2.5">
                     <Badge value={r.status} />
+                    {r.status === "sold" && r.stock_synced === false && (
+                      <div className="mt-1 text-xs text-accent-strong">update stock in Big Cartel</div>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">{timeLeft(r.expires_at, r.status)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-muted">{fmtDate(r.created_at)}</td>

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Badge, btnDark, btnLight, fmtDate, input, money, timeLeft } from "@/components/admin";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/supabase";
-import { markSold, releaseReservation, saveNotes } from "../../actions";
+import { confirmStockUpdated, markSold, releaseReservation, saveNotes } from "../../actions";
 
 export default async function ReservationDetail({ params }: PageProps<"/admin/reservations/[id]">) {
   await requireAdmin();
@@ -65,8 +65,22 @@ export default async function ReservationDetail({ params }: PageProps<"/admin/re
           )}
           {live && (
             <p className="mt-3 text-xs text-muted">
-              Mark as sold keeps the artwork hidden on the store. Release makes it available again.
+              Mark as sold counts this unit as sold. Release gives the unit back so someone else can reserve it.
             </p>
+          )}
+          {r.status === "sold" && r.stock_synced === false && (
+            <div className="mt-5 rounded-xl bg-accent-soft p-4 text-sm leading-relaxed">
+              <p className="font-semibold">One more step: update the stock in Big Cartel</p>
+              <p className="mt-1">
+                Lower the stock of <strong>{r.product_name}</strong> by 1 in Big Cartel (Products, open the artwork,
+                Stock). Big Cartel can&rsquo;t be changed from here. Then press the button, so the portal stops
+                counting this sale. Until you do, this unit stays unavailable.
+              </p>
+              <form action={confirmStockUpdated} className="mt-3">
+                <input type="hidden" name="id" value={r.id} />
+                <button className={btnDark}>I&rsquo;ve updated the stock</button>
+              </form>
+            </div>
           )}
 
           <form action={saveNotes} className="mt-6">

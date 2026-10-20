@@ -1,9 +1,10 @@
 // Simultaneous-reservation test through the real verification path.
 //   npm run race-test -- <product_id> [base_url]
 // Needs `npm run dev` running, plus Supabase/CRON/SESSION_SECRET env vars.
-// Plants 5 pending email verifications (known code 123456), confirms all 5 at once, and expects
-// exactly 1x200 and 4x409. Then checks the product got hidden, force-expires the winner through the
-// cron route, and checks the original Big Cartel status is restored. Cleans up its test rows.
+// Reads the artwork's stock (N) from Big Cartel, plants N+3 pending email verifications (known code
+// 123456) and confirms them all at once. Exactly N must win and 3 must be told it is reserved. When
+// all N units are taken the artwork must be hidden. Then every winner is force-expired through the
+// cron route and the original Big Cartel status must come back. Test rows are cleaned up.
 import { createHmac, randomUUID } from "node:crypto";
 
 const { BIGCARTEL_SUBDOMAIN, BIGCARTEL_PASSWORD, BIGCARTEL_ACCOUNT_ID, BIGCARTEL_USER_AGENT } = process.env;
@@ -29,26 +30,32 @@ const sb = {
   "Content-Type": "application/json",
 };
 
-async function bcStatus(): Promise<string> {
+async function bcProduct(): Promise<{ status: string; units: number }> {
   const auth = Buffer.from(`${BIGCARTEL_SUBDOMAIN}:${BIGCARTEL_PASSWORD}`).toString("base64");
-  const res = await fetch(`https://api.bigcartel.com/v1/accounts/${BIGCARTEL_ACCOUNT_ID}/products/${productId}`, {
-    headers: { Accept: "application/vnd.api+json", "User-Agent": BIGCARTEL_USER_AGENT!, Authorization: `Basic ${auth}` },
-  });
-  return (await res.json()).data.attributes.status;
+  const res = await fetch(
+    `https://api.bigcartel.com/v1/accounts/${BIGCARTEL_ACCOUNT_ID}/products/${productId}?include=options`,
+    { headers: { Accept: "application/vnd.api+json", "User-Agent": BIGCARTEL_USER_AGENT!, Authorization: `Basic ${auth}` } },
+  );
+  const j = await res.json();
+  const options = (j.included ?? []).filter((i: any) => i.type === "product_options");
+  const units = options.reduce((n: number, o: any) => n + (o.attributes?.quantity == null ? 1 : Number(o.attributes.quantity)), 0);
+  return { status: j.data.attributes.status, units };
 }
 
 const hmac = (v: string) => createHmac("sha256", SESSION_SECRET!).update(v).digest("hex");
 
 async function main() {
-  const startStatus = await bcStatus();
-  console.log(`Big Cartel status before: ${startStatus}`);
-  if (startStatus !== "active") {
-    console.error("Product must be active to run this test.");
+  const start = await bcProduct();
+  console.log(`Big Cartel before: status ${start.status}, stock ${start.units}`);
+  if (start.status !== "active" || start.units < 1) {
+    console.error("The artwork must be active with stock of at least 1 to run this test.");
     process.exit(1);
   }
+  const units = start.units;
+  const total = units + 3;
 
-  // Plant 5 verifications with a known code.
-  const rows = [1, 2, 3, 4, 5].map((i) => {
+  const rows = Array.from({ length: total }, (_, k) => {
+    const i = k + 1;
     const id = randomUUID();
     const email = `race${i}@example.com`;
     return {
@@ -66,7 +73,7 @@ async function main() {
   });
   const ins = await fetch(`${rest}/email_verifications`, { method: "POST", headers: sb, body: JSON.stringify(rows) });
   if (!ins.ok) {
-    console.error("Could not plant verifications. Did you run supabase/migration-002-email-verification.sql?", await ins.text());
+    console.error("Could not plant verifications. Did you run the SQL migrations in supabase/?", await ins.text());
     process.exit(1);
   }
 
@@ -81,34 +88,36 @@ async function main() {
       return { i: i + 1, status: res.status, json: await res.json() };
     }),
   );
-  console.log(`5 confirmations finished in ${Date.now() - t0}ms`);
+  console.log(`${total} confirmations (stock ${units}) finished in ${Date.now() - t0}ms`);
   for (const r of results) console.log(`  #${r.i} -> ${r.status} ${JSON.stringify(r.json)}`);
 
   const wins = results.filter((r) => r.status === 200);
   const conflicts = results.filter((r) => r.status === 409);
-  const pass1 = wins.length === 1 && conflicts.length === 4;
-  console.log(pass1 ? "PASS: exactly 1 winner, 4 conflicts" : "FAIL: expected 1x200 and 4x409");
+  const pass1 = wins.length === units && conflicts.length === 3;
+  console.log(pass1 ? `PASS: exactly ${units} winner(s), 3 told it is reserved` : `FAIL: expected ${units}x200 and 3x409`);
 
-  const hidden = await bcStatus();
-  console.log(`Big Cartel status after reserve: ${hidden}`, hidden === "hidden" ? "(PASS)" : "(FAIL)");
+  const after = await bcProduct();
+  console.log(`Big Cartel after reserve: ${after.status}`, after.status === "hidden" ? "(PASS: every unit held, so hidden)" : "(FAIL)");
 
-  // Cleanup: backdate the winner's expiry, let the cron expire it (restores status), then delete test rows.
+  // Cleanup: backdate every winner, let the cron expire them (frees the units, restores the status).
   let pass2 = false;
-  if (wins[0]) {
-    await fetch(`${rest}/reservations?id=eq.${wins[0].json.id}`, {
-      method: "PATCH",
-      headers: sb,
-      body: JSON.stringify({ expires_at: new Date(Date.now() - 60_000).toISOString() }),
-    });
+  if (wins.length) {
+    for (const w of wins) {
+      await fetch(`${rest}/reservations?id=eq.${w.json.id}`, {
+        method: "PATCH",
+        headers: sb,
+        body: JSON.stringify({ expires_at: new Date(Date.now() - 60_000).toISOString() }),
+      });
+    }
     const cron = await fetch(`${base}/api/cron/expire`, { method: "POST", headers: { "x-cron-secret": CRON_SECRET! } });
     console.log(`cron/expire -> ${cron.status} ${await cron.text()}`);
-    const restored = await bcStatus();
-    pass2 = restored === startStatus;
-    console.log(`Big Cartel status after expiry: ${restored}`, pass2 ? "(PASS, original restored)" : "(FAIL)");
+    const restored = await bcProduct();
+    pass2 = restored.status === start.status;
+    console.log(`Big Cartel after expiry: ${restored.status}`, pass2 ? "(PASS, original restored)" : "(FAIL)");
   }
   await fetch(`${rest}/reservations?customer_email=like.race*@example.com`, { method: "DELETE", headers: sb });
   await fetch(`${rest}/email_verifications?email=like.race*@example.com`, { method: "DELETE", headers: sb });
-  process.exit(pass1 && hidden === "hidden" && pass2 ? 0 : 1);
+  process.exit(pass1 && after.status === "hidden" && pass2 ? 0 : 1);
 }
 
 main().catch((e) => {

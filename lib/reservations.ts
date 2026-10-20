@@ -1,8 +1,9 @@
 import { randomInt } from "node:crypto";
-import { BcError, getProduct, setProductStatus } from "./bigcartel";
+import { getProduct } from "./bigcartel";
 import { sendEmail } from "./email";
 import { reservationExpiredEmail, reservationStartedEmail } from "./email-templates";
 import { reservationMinutes } from "./env";
+import { holdProduct, isHeldByUs, LIVE, reconcileAll, reconcileQuietly } from "./stock";
 import { db } from "./supabase";
 
 export type ReserveInput = {
@@ -28,16 +29,11 @@ export type ReserveResult =
   | { ok: true; id: string; reference: string }
   | { ok: false; status: number; error: string };
 
-const LIVE = ["locking", "active", "receipt_uploaded"];
 type ClosingStatus = "expired" | "released" | "failed" | "sold";
 
 const REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
 const newReference = () =>
   "BT-" + Array.from({ length: 6 }, () => REF_ALPHABET[randomInt(REF_ALPHABET.length)]).join("");
-
-const isUnique = (e: { code?: string } | null) => e?.code === "23505";
-const isLiveIndex = (e: { message?: string } | null) =>
-  !!e?.message?.includes("one_live_reservation_per_product");
 
 const clean = (v: unknown, max = 200) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max + 1);
 
@@ -77,7 +73,12 @@ async function markFailed(id: string) {
     .eq("id", id);
 }
 
-/** Race-safe reserve flow. The unique partial index is the lock. */
+/**
+ * Race-safe reserve flow for artworks with one or more units in stock.
+ * The database function `reserve_unit` counts the units already taken and inserts under a per-artwork
+ * lock, so two customers can never take more units than exist. The artwork is hidden on Big Cartel
+ * only when this reservation takes the last free unit.
+ */
 export async function reserve(input: ReserveInput, ipHash: string | null = null): Promise<ReserveResult> {
   const supabase = db();
 
@@ -91,14 +92,30 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
   }
   const discount = Number(settings?.discount_amount ?? 300);
 
-  // 2. INSERT with status=locking. Unique index violation on product_id = someone else has it.
-  let row: { id: string; reference: string } | null = null;
+  // 1. Read the artwork. Its stock is the capacity for the lock below.
+  let product;
+  try {
+    product = await getProduct(input.productId);
+  } catch {
+    return { ok: false, status: 500, error: "Could not check the artwork. Please try again." };
+  }
+  if (product.status !== "active" || product.quantity < 1 || !product.optionId) {
+    const held = product.status === "hidden" && (await isHeldByUs(input.productId));
+    return {
+      ok: false,
+      status: 409,
+      error: held ? "This artwork is currently reserved." : "This artwork isn't available right now.",
+    };
+  }
+
+  // 2. Take one unit atomically. null = every unit is already taken.
+  let row: { id: string; reference: string; taken: number } | null = null;
   for (let attempt = 0; attempt < 5 && !row; attempt++) {
-    const { data, error } = await supabase
-      .from("reservations")
-      .insert({
+    const { data, error } = await supabase.rpc("reserve_unit", {
+      p_product_id: input.productId,
+      p_capacity: product.quantity,
+      p_row: {
         reference: newReference(),
-        product_id: input.productId,
         customer_name: input.name,
         customer_email: input.email,
         phone: input.phone,
@@ -109,39 +126,19 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
         country: input.country,
         shipping_address: formatAddress(input),
         ip_hash: ipHash,
-        status: "locking",
-      })
-      .select("id, reference")
-      .single();
-    if (data) row = data as { id: string; reference: string };
-    else if (isUnique(error) && isLiveIndex(error)) {
-      return { ok: false, status: 409, error: "This artwork is currently reserved." };
-    } else if (!isUnique(error)) {
-      console.error("[reserve] insert failed", error);
+      },
+    });
+    if (error) {
+      if (error.code === "23505") continue; // reference collision: try a new one
+      console.error("[reserve] reserve_unit failed", error);
       return { ok: false, status: 500, error: "Something went wrong. Please try again." };
-    } // else: reference collision, retry with a new one
+    }
+    if (data == null) return { ok: false, status: 409, error: "This artwork is currently reserved." };
+    row = data as { id: string; reference: string; taken: number };
   }
   if (!row) return { ok: false, status: 500, error: "Something went wrong. Please try again." };
 
-  // 3. Fetch the product. It must be purchasable (active, in stock).
-  let product;
-  try {
-    product = await getProduct(input.productId);
-  } catch {
-    await markFailed(row.id);
-    return { ok: false, status: 500, error: "Could not check the artwork. Please try again." };
-  }
-  if (product.status !== "active" || product.quantity < 1 || !product.optionId) {
-    await markFailed(row.id);
-    return { ok: false, status: 409, error: "This artwork isn't available right now." };
-  }
-  // Hiding is all-or-nothing, so it is only safe for single-unit artworks (see docs/ARCHITECTURE.md).
-  if (product.quantity > 1) {
-    await markFailed(row.id);
-    return { ok: false, status: 409, error: "Bank transfer isn't available for this artwork." };
-  }
-
-  // Record what we are about to change BEFORE changing it, so crash cleanup can restore it.
+  // 3. Record the details first, so crash cleanup knows what happened.
   await supabase
     .from("reservations")
     .update({
@@ -153,12 +150,15 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
     })
     .eq("id", row.id);
 
-  // 4. Hide the product on Big Cartel (the API cannot change stock).
-  try {
-    await setProductStatus(input.productId, "hidden");
-  } catch {
-    await markFailed(row.id);
-    return { ok: false, status: 500, error: "Could not reserve the artwork. Please try again." };
+  // 4. Last free unit taken: hide the artwork (the API cannot change stock).
+  if (row.taken >= product.quantity) {
+    try {
+      await holdProduct(input.productId, product.status);
+    } catch {
+      await markFailed(row.id);
+      await reconcileQuietly(input.productId);
+      return { ok: false, status: 500, error: "Could not reserve the artwork. Please try again." };
+    }
   }
 
   // 5. Go live.
@@ -188,35 +188,36 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
 }
 
 /**
- * The single place a reservation leaves the live states.
- * Restores the product's ORIGINAL Big Cartel status (except `sold`, which stays hidden).
- * Idempotent: only acts on rows that are still live.
+ * The single place a reservation leaves the live states. The database is the source of truth: once
+ * the row is closed, Big Cartel is brought into line (a unit freed up -> show the artwork again).
+ * If Big Cartel cannot be reached right now, the every-minute cron repairs it.
+ * `sold` keeps counting against the artwork until the owner lowers the stock (see markStockSynced).
  */
 export async function closeReservation(id: string, to: ClosingStatus): Promise<boolean> {
-  const supabase = db();
-  const { data: r } = await supabase.from("reservations").select("*").eq("id", id).maybeSingle();
-  if (!r || !LIVE.includes(r.status)) return false;
-
-  if (to !== "sold" && r.original_status) {
-    try {
-      await setProductStatus(r.product_id, r.original_status);
-    } catch (e) {
-      if (e instanceof BcError && e.status === 404) {
-        console.log(`[close] product ${r.product_id} no longer exists on Big Cartel; closing ${id} anyway`);
-      } else {
-        // Row stays live so the cron retries; DB and Big Cartel never drift.
-        console.error(`[close] could not restore ${r.product_id}; leaving ${id} live`);
-        return false;
-      }
-    }
-  }
-  const { data: updated } = await supabase
+  const now = new Date().toISOString();
+  const { data: updated } = await db()
     .from("reservations")
-    .update({ status: to, updated_at: new Date().toISOString() })
+    .update(to === "sold" ? { status: "sold", stock_synced: false, updated_at: now } : { status: to, updated_at: now })
     .eq("id", id)
     .in("status", LIVE)
-    .select("id");
-  return (updated?.length ?? 0) > 0;
+    .select("product_id");
+  if (!updated?.length) return false;
+  await reconcileQuietly(updated[0].product_id);
+  return true;
+}
+
+/** The owner has lowered the stock in Big Cartel for this sold artwork: stop counting it. */
+export async function markStockSynced(id: string): Promise<boolean> {
+  const { data } = await db()
+    .from("reservations")
+    .update({ stock_synced: true, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "sold")
+    .eq("stock_synced", false)
+    .select("product_id");
+  if (!data?.length) return false;
+  await reconcileQuietly(data[0].product_id);
+  return true;
 }
 
 async function expireRow(r: any): Promise<boolean> {
@@ -267,7 +268,10 @@ export async function expireReservations() {
     .eq("status", "locking")
     .lt("created_at", cutoff);
   for (const r of stuck ?? []) if (await closeReservation(r.id, "failed")) out.cleaned++;
-  return out;
+
+  // Repair Big Cartel for every artwork we hold or hid (also notices card purchases lowering the stock).
+  const reconciled = await reconcileAll();
+  return { ...out, reconciled };
 }
 
 export async function getReservationView(id: string) {

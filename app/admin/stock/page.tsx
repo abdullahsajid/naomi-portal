@@ -12,32 +12,51 @@ export default async function StockPage() {
   } catch {
     return <p className="text-accent-strong">Could not load products from Big Cartel. Check the Big Cartel password in the environment settings.</p>;
   }
-  const { data: live } = await db()
-    .from("reservations")
-    .select("product_id, reference")
-    .in("status", ["locking", "active", "receipt_uploaded"]);
-  const reservedBy = new Map((live ?? []).map((r) => [r.product_id, r.reference]));
+
+  const [{ data: taken }, { data: held }] = await Promise.all([
+    db()
+      .from("reservations")
+      .select("product_id, status")
+      .or("status.in.(locking,active,receipt_uploaded),and(status.eq.sold,stock_synced.eq.false)"),
+    db().from("held_products").select("product_id"),
+  ]);
+  const holds = new Map<string, number>();
+  const toSync = new Map<string, number>();
+  for (const r of taken ?? []) {
+    const m = r.status === "sold" ? toSync : holds;
+    m.set(r.product_id, (m.get(r.product_id) ?? 0) + 1);
+  }
+  const hiddenByUs = new Set((held ?? []).map((h) => h.product_id));
+  const needsSync = [...toSync.values()].reduce((a, b) => a + b, 0);
 
   return (
     <>
       <h1 className="font-heading text-2xl mb-2">Stock</h1>
       <p className="text-sm text-muted mb-5 max-w-2xl">
-        Big Cartel can’t change stock levels from here, so an artwork is held by hiding it on the store. “Hidden”
-        products can’t be bought or viewed by customers. Artworks with a live reservation are managed from the
-        reservation instead.
+        Big Cartel can’t change stock levels from here. Each reservation holds one unit. An artwork is only hidden on
+        the store once <strong>every</strong> unit is held or sold. “Left to sell” is the Big Cartel stock minus what is
+        held here.
       </p>
+      {needsSync > 0 && (
+        <p className="mb-5 rounded-xl bg-accent-soft px-4 py-3 text-sm max-w-2xl">
+          <strong>{needsSync}</strong> sold {needsSync === 1 ? "artwork needs its" : "artworks need their"} stock lowered
+          in Big Cartel. Open the sold reservation and press “I’ve updated the stock” once it’s done.
+        </p>
+      )}
       <div className="overflow-x-auto rounded-xl border border-line bg-card">
         <table className="w-full text-sm">
           <thead className="text-left text-muted">
             <tr>
-              {["Artwork", "Price", "Quantity", "Status", ""].map((h) => (
+              {["Artwork", "Price", "Stock in Big Cartel", "Held now", "Sold, stock to update", "Left to sell", "Status", ""].map((h) => (
                 <th key={h} className="px-3 py-2.5 font-semibold">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {products.map((p) => {
-              const ref = reservedBy.get(p.id);
+              const h = holds.get(p.id) ?? 0;
+              const s = toSync.get(p.id) ?? 0;
+              const managed = h + s > 0 || hiddenByUs.has(p.id);
               const next = p.status === "active" ? "hidden" : "active";
               return (
                 <tr key={p.id} className="border-t border-line">
@@ -55,12 +74,16 @@ export default async function StockPage() {
                   </td>
                   <td className="px-3 py-2.5">A${p.price.toFixed(2)}</td>
                   <td className="px-3 py-2.5">{p.quantity}</td>
+                  <td className="px-3 py-2.5">{h}</td>
+                  <td className="px-3 py-2.5">{s}</td>
+                  <td className="px-3 py-2.5 font-semibold">{Math.max(0, p.quantity - h - s)}</td>
                   <td className="px-3 py-2.5">
-                    <Badge value={p.status === "active" ? "active" : p.status} />
+                    <Badge value={p.status} />
+                    {hiddenByUs.has(p.id) && <div className="text-xs text-muted mt-1">hidden: all units held</div>}
                   </td>
                   <td className="px-3 py-2.5 text-right">
-                    {ref ? (
-                      <span className="text-xs text-muted">Reserved ({ref})</span>
+                    {managed ? (
+                      <span className="text-xs text-muted">Managed by reservations</span>
                     ) : (
                       <form action={setStatus}>
                         <input type="hidden" name="productId" value={p.id} />
