@@ -33,8 +33,8 @@ export default async function StockPage() {
     <>
       <h1 className="font-heading text-2xl mb-2">Stock</h1>
       <p className="text-sm text-muted mb-5 max-w-2xl">
-        Big Cartel can’t change stock levels from here. Each reservation holds one unit. An artwork is only hidden on
-        the store once <strong>every</strong> unit is held or sold. “Left to sell” is the Big Cartel stock minus what is
+        Big Cartel can’t change stock levels from here. Each reservation holds one unit. An artwork stays on sale
+        until <strong>every</strong> unit is held or sold; then the store shows it as reserved (or sold out) with no buy buttons. “Left to sell” is the Big Cartel stock minus what is
         held here.
       </p>
       {needsSync > 0 && (
@@ -79,7 +79,7 @@ export default async function StockPage() {
                   <td className="px-3 py-2.5 font-semibold">{Math.max(0, p.quantity - h - s)}</td>
                   <td className="px-3 py-2.5">
                     <Badge value={p.status} />
-                    {hiddenByUs.has(p.id) && <div className="text-xs text-muted mt-1">hidden: all units held</div>}
+                    {hiddenByUs.has(p.id) && <div className="text-xs text-muted mt-1">store shows it as taken</div>}
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     {managed ? (

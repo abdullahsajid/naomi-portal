@@ -2,12 +2,15 @@ import { env } from "./env";
 
 const BASE = "https://api.bigcartel.com/v1";
 
-export type BcStatus = "active" | "hidden" | (string & {});
+// The API spells these with underscores. "sold_out" and "coming_soon" keep the artwork visible with
+// no purchase buttons; "hidden" removes the page from the store.
+export type BcStatus = "active" | "hidden" | "sold_out" | "coming_soon" | (string & {});
 
 export type BcProduct = {
   id: string;
   name: string;
   status: BcStatus;
+  onSale: boolean;
   price: number;
   imageUrl: string | null;
   url: string | null;
@@ -67,6 +70,7 @@ function parseProduct(data: any, included: any[] = []): BcProduct {
     id: data.id,
     name: data.attributes.name,
     status: data.attributes.status,
+    onSale: Boolean(data.attributes.on_sale),
     price: Number(option?.attributes?.price ?? data.attributes.default_price),
     imageUrl: data.attributes.primary_image_url ?? null,
     url: data.attributes.url ?? null,
@@ -88,9 +92,11 @@ export async function listProducts(): Promise<BcProduct[]> {
   });
 }
 
-/** Option quantity is read-only in the API; we lock artworks via product status. */
-export async function setProductStatus(productId: string, status: BcStatus): Promise<void> {
+/** Option quantity is read-only in the API; we lock artworks via product status (and the on_sale flag). */
+export async function updateProduct(productId: string, attributes: { status?: BcStatus; on_sale?: boolean }): Promise<void> {
   await bc("PATCH", `${account()}/products/${encodeURIComponent(productId)}`, {
-    data: { id: productId, type: "products", attributes: { status } },
+    data: { id: productId, type: "products", attributes },
   });
 }
+
+export const setProductStatus = (productId: string, status: BcStatus) => updateProduct(productId, { status });

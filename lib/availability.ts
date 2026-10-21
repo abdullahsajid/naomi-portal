@@ -1,6 +1,6 @@
 import { BcError, getProduct, type BcProduct } from "./bigcartel";
 import { expireDueForProduct } from "./reservations";
-import { countLive, countTaken, isHeldByUs } from "./stock";
+import { countLive, countTaken, isHeldByUs, isShownAsTaken } from "./stock";
 import { db } from "./supabase";
 
 export async function getSettings() {
@@ -29,8 +29,8 @@ export async function getAvailability(productId: string): Promise<Availability> 
     return { available: false, reason: e instanceof BcError && e.status === 404 ? "not-found" : "error" };
   }
 
-  // Hidden: ours (every unit is held) or the owner's.
-  if (product.status === "hidden") {
+  // Shown as taken (sold out or hidden): ours (every unit is held) or the owner's.
+  if (isShownAsTaken(product.status)) {
     return { available: false, reason: (await isHeldByUs(productId)) ? "reserved" : "unavailable" };
   }
   // Sold elsewhere, or not on sale yet.

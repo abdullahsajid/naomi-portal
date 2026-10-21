@@ -3,7 +3,7 @@ import { getProduct } from "./bigcartel";
 import { sendEmail } from "./email";
 import { reservationExpiredEmail, reservationStartedEmail } from "./email-templates";
 import { reservationMinutes } from "./env";
-import { holdProduct, isHeldByUs, LIVE, reconcileAll, reconcileQuietly } from "./stock";
+import { holdProduct, isHeldByUs, isShownAsTaken, LIVE, reconcileAll, reconcileQuietly } from "./stock";
 import { db } from "./supabase";
 
 export type ReserveInput = {
@@ -100,7 +100,7 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
     return { ok: false, status: 500, error: "Could not check the artwork. Please try again." };
   }
   if (product.status !== "active" || product.quantity < 1 || !product.optionId) {
-    const held = product.status === "hidden" && (await isHeldByUs(input.productId));
+    const held = isShownAsTaken(product.status) && (await isHeldByUs(input.productId));
     return {
       ok: false,
       status: 409,
@@ -150,10 +150,10 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
     })
     .eq("id", row.id);
 
-  // 4. Last free unit taken: hide the artwork (the API cannot change stock).
+  // 4. Last free unit taken: show the artwork as sold out + reserved (the API cannot change stock).
   if (row.taken >= product.quantity) {
     try {
-      await holdProduct(input.productId, product.status);
+      await holdProduct(input.productId, { status: product.status, onSale: product.onSale }, true);
     } catch {
       await markFailed(row.id);
       await reconcileQuietly(input.productId);

@@ -2,7 +2,7 @@
 
 A small web app that sits next to the Big Cartel store. A customer can buy an artwork by bank transfer at a discount: they enter their details, confirm their email with a 6-digit code, get 15 minutes to pay and upload a receipt, and the artwork is held for them until the owner confirms the payment in the admin dashboard.
 
-Big Cartel's API cannot change stock, so a reserved artwork is hidden on the store and restored when the reservation ends.
+Big Cartel's API cannot change stock, so while every unit of an artwork is spoken for it is switched to "sold out" with a reserved marker: it stays visible with a TEMPORARILY RESERVED label and no buy buttons, and goes back on sale when a unit frees up.
 
 ## Stack
 

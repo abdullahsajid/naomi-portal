@@ -37,6 +37,7 @@ create index reservations_taken_idx
 create table held_products (
   product_id text primary key,
   original_status text not null,
+  original_on_sale boolean not null default false,
   hidden_at timestamptz not null default now()
 );
 

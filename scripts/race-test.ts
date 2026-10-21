@@ -3,7 +3,7 @@
 // Needs `npm run dev` running, plus Supabase/CRON/SESSION_SECRET env vars.
 // Reads the artwork's stock (N) from Big Cartel, plants N+3 pending email verifications (known code
 // 123456) and confirms them all at once. Exactly N must win and 3 must be told it is reserved. When
-// all N units are taken the artwork must be hidden. Then every winner is force-expired through the
+// all N units are taken the artwork must show as sold out + reserved. Then every winner is force-expired through the
 // cron route and the original Big Cartel status must come back. Test rows are cleaned up.
 import { createHmac, randomUUID } from "node:crypto";
 
@@ -30,7 +30,7 @@ const sb = {
   "Content-Type": "application/json",
 };
 
-async function bcProduct(): Promise<{ status: string; units: number }> {
+async function bcProduct(): Promise<{ status: string; onSale: boolean; units: number }> {
   const auth = Buffer.from(`${BIGCARTEL_SUBDOMAIN}:${BIGCARTEL_PASSWORD}`).toString("base64");
   const res = await fetch(
     `https://api.bigcartel.com/v1/accounts/${BIGCARTEL_ACCOUNT_ID}/products/${productId}?include=options`,
@@ -39,7 +39,7 @@ async function bcProduct(): Promise<{ status: string; units: number }> {
   const j = await res.json();
   const options = (j.included ?? []).filter((i: any) => i.type === "product_options");
   const units = options.reduce((n: number, o: any) => n + (o.attributes?.quantity == null ? 1 : Number(o.attributes.quantity)), 0);
-  return { status: j.data.attributes.status, units };
+  return { status: j.data.attributes.status, onSale: Boolean(j.data.attributes.on_sale), units };
 }
 
 const hmac = (v: string) => createHmac("sha256", SESSION_SECRET!).update(v).digest("hex");
@@ -97,7 +97,7 @@ async function main() {
   console.log(pass1 ? `PASS: exactly ${units} winner(s), 3 told it is reserved` : `FAIL: expected ${units}x200 and 3x409`);
 
   const after = await bcProduct();
-  console.log(`Big Cartel after reserve: ${after.status}`, after.status === "hidden" ? "(PASS: every unit held, so hidden)" : "(FAIL)");
+  console.log(`Big Cartel after reserve: ${after.status}`, after.status === "sold_out" && after.onSale ? "(PASS: every unit held, so shown as sold out and reserved)" : "(FAIL)");
 
   // Cleanup: backdate every winner, let the cron expire them (frees the units, restores the status).
   let pass2 = false;
@@ -117,7 +117,7 @@ async function main() {
   }
   await fetch(`${rest}/reservations?customer_email=like.race*@example.com`, { method: "DELETE", headers: sb });
   await fetch(`${rest}/email_verifications?email=like.race*@example.com`, { method: "DELETE", headers: sb });
-  process.exit(pass1 && after.status === "hidden" && pass2 ? 0 : 1);
+  process.exit(pass1 && after.status === "sold_out" && after.onSale && pass2 ? 0 : 1);
 }
 
 main().catch((e) => {

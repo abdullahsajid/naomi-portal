@@ -7,6 +7,8 @@ const COLORS: Record<string, string> = {
   released: "bg-gray-100 text-gray-600",
   failed: "bg-[#ead1ea] text-[#8a1c9b]",
   hidden: "bg-gray-100 text-gray-700",
+  sold_out: "bg-gray-100 text-gray-700",
+  coming_soon: "bg-gray-100 text-gray-700",
 };
 
 export function Badge({ value }: { value: string }) {
