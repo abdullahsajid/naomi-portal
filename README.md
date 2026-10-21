@@ -32,4 +32,4 @@ Run the SQL in `supabase/schema.sql` in your Supabase project first.
 
 - [docs/INSTALL.md](docs/INSTALL.md): environment, Supabase, Netlify, cron jobs, theme button
 - [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md): guide for the store owner
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it works, flows and decisions
+
