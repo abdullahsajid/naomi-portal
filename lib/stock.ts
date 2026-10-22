@@ -101,6 +101,17 @@ export async function reconcileProduct(productId: string): Promise<void> {
     }
 
     if (!held) return; // nothing of ours to undo
+    if (product.quantity <= 0) {
+      // Sold elsewhere (e.g. a card order took the last unit): never bring it back on sale.
+      // Only drop our marker; keep the record while we still hold the status, so a restock restores it.
+      if (product.onSale !== held.original_on_sale) {
+        await updateProduct(productId, { on_sale: held.original_on_sale });
+      }
+      if (!isShownAsTaken(product.status)) {
+        await supabase.from("held_products").delete().eq("product_id", productId);
+      }
+      return;
+    }
     if (isShownAsTaken(product.status)) {
       await updateProduct(productId, { status: held.original_status, on_sale: held.original_on_sale });
     } else if (product.onSale !== held.original_on_sale) {
