@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArtworkHeader, Shell } from "@/components/Shell";
 import { Unavailable } from "@/components/Unavailable";
 import { aud, getAvailability } from "@/lib/availability";
+import { storeUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +66,7 @@ export default async function ReservePage({ params }: PageProps<"/reserve/[produ
           Continue <span aria-hidden>→</span>
         </Link>
         <a
-          href={product.url ?? `https://${process.env.BIGCARTEL_SUBDOMAIN}.bigcartel.com`}
+          href={product.url ?? storeUrl()}
           className="flex items-center justify-center rounded-lg border border-accent/30 py-3.5 font-semibold"
         >
           Cancel

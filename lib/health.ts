@@ -4,7 +4,7 @@ import { adminBigCartelProblemEmail } from "./email-templates";
 import { db } from "./supabase";
 
 /**
- * If Big Cartel rejects our login (usually a changed password), email the owner, at most once an hour.
+ * If Big Cartel rejects our login (a changed password or removed access), email the owner, at most once an hour.
  * The `alerts` table dedupes: bigcartel_order_id is unique, so one row per hour = one email per hour.
  */
 export async function reportBigCartelProblem(e: unknown): Promise<void> {
@@ -13,7 +13,7 @@ export async function reportBigCartelProblem(e: unknown): Promise<void> {
   const detail = `Big Cartel answered ${e.status}`;
   const { error } = await db()
     .from("alerts")
-    .insert({ bigcartel_order_id: `system:bigcartel-login:${hour}`, message: `${detail}. Check BIGCARTEL_PASSWORD.` });
+    .insert({ bigcartel_order_id: `system:bigcartel-login:${hour}`, message: `${detail}. Reconnect Big Cartel (or check BIGCARTEL_PASSWORD).` });
   if (error) return; // already reported this hour (or the table is unreachable)
   await sendEmail(process.env.ADMIN_EMAIL ?? "", adminBigCartelProblemEmail({ detail }));
 }

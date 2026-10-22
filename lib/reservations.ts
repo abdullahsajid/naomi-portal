@@ -1,9 +1,9 @@
 import { randomInt } from "node:crypto";
 import { getProduct } from "./bigcartel";
 import { sendEmail } from "./email";
-import { reservationExpiredEmail, reservationStartedEmail } from "./email-templates";
-import { reservationMinutes } from "./env";
-import { holdProduct, isHeldByUs, isShownAsTaken, LIVE, reconcileAll, reconcileQuietly } from "./stock";
+import { adminConflictEmail, reservationExpiredEmail, reservationStartedEmail, unitSoldElsewhereEmail } from "./email-templates";
+import { reservationMinutes, storeUrl } from "./env";
+import { countTaken, holdProduct, isHeldByUs, isShownAsTaken, LIVE, reconcileAll, reconcileQuietly } from "./stock";
 import { db } from "./supabase";
 
 export type ReserveInput = {
@@ -138,6 +138,18 @@ export async function reserve(input: ReserveInput, ipHash: string | null = null)
   }
   if (!row) return { ok: false, status: 500, error: "Something went wrong. Please try again." };
 
+  // 2b. Re-read the stock now that the unit is ours. A card order may have landed between the first read and
+  // the lock; if there is no longer a unit for us, give it back before showing any bank details.
+  try {
+    const fresh = await getProduct(input.productId);
+    if (fresh.quantity < row.taken) {
+      await markFailed(row.id);
+      return { ok: false, status: 409, error: "This artwork was just bought by someone else." };
+    }
+  } catch {
+    // Big Cartel hiccup: keep going, the every-minute check below catches a collision anyway.
+  }
+
   // 3. Record the details first, so crash cleanup knows what happened.
   await supabase
     .from("reservations")
@@ -206,6 +218,62 @@ export async function closeReservation(id: string, to: ClosingStatus): Promise<b
   return true;
 }
 
+async function alertOwner(key: string, message: string, reference: string): Promise<void> {
+  const { error } = await db().from("alerts").insert({ bigcartel_order_id: key, message });
+  if (error) return; // already reported
+  await sendEmail(process.env.ADMIN_EMAIL ?? "", adminConflictEmail({ message, reference }));
+}
+
+/**
+ * Big Cartel has no way to hold a unit, so a card order can land while a bank transfer is reserved.
+ * Money in hand wins: when more units are held than Big Cartel still has, the newest reservations that have
+ * not sent a receipt yet are cancelled, and the customer is told before they transfer anything.
+ * A reservation that already uploaded a receipt, and units already sold, are never cancelled automatically;
+ * the owner is alerted instead.
+ */
+export async function resolveOverbooking(productId: string): Promise<{ released: number }> {
+  const supabase = db();
+  const [product, taken] = await Promise.all([getProduct(productId), countTaken(productId)]);
+  let excess = taken - product.quantity;
+  if (excess <= 0) return { released: 0 };
+
+  const { data: candidates } = await supabase
+    .from("reservations")
+    .select("*")
+    .eq("product_id", productId)
+    .in("status", ["locking", "active"])
+    .order("created_at", { ascending: false });
+
+  let released = 0;
+  for (const r of candidates ?? []) {
+    if (excess <= 0) break;
+    if (!(await closeReservation(r.id, "released"))) continue;
+    await supabase
+      .from("reservations")
+      .update({ admin_notes: [r.admin_notes, "Released automatically: a card order took the last unit first."].filter(Boolean).join("\n") })
+      .eq("id", r.id);
+    await sendEmail(
+      r.customer_email,
+      unitSoldElsewhereEmail({ name: r.customer_name, product: r.product_name ?? "the artwork", reference: r.reference }),
+    );
+    await alertOwner(
+      `overbooked:${r.id}`,
+      `A card order took the last unit of "${r.product_name}", so the bank transfer reservation ${r.reference} by ${r.customer_name} was cancelled automatically and they were told not to transfer. No action needed.`,
+      r.reference,
+    );
+    excess--;
+    released++;
+  }
+  if (excess > 0) {
+    await alertOwner(
+      `overbooked-manual:${productId}:${taken}:${product.quantity}`,
+      `"${product.name}" now has more units sold or reserved than are left in Big Cartel (a card order arrived), and the extra ones have already sent a receipt or been sold. Please decide who gets it and refund the other payment.`,
+      "-",
+    );
+  }
+  return { released };
+}
+
 /** The owner has lowered the stock in Big Cartel for this sold artwork: stop counting it. */
 export async function markStockSynced(id: string): Promise<boolean> {
   const { data } = await db()
@@ -269,9 +337,20 @@ export async function expireReservations() {
     .lt("created_at", cutoff);
   for (const r of stuck ?? []) if (await closeReservation(r.id, "failed")) out.cleaned++;
 
-  // Repair Big Cartel for every artwork we hold or hid (also notices card purchases lowering the stock).
+  // A card order may have taken a unit we are holding: give the newest holds back (see resolveOverbooking).
+  const { data: heldRows } = await supabase.from("reservations").select("product_id").in("status", LIVE);
+  let overbooked = 0;
+  for (const productId of new Set((heldRows ?? []).map((r) => r.product_id))) {
+    try {
+      overbooked += (await resolveOverbooking(productId)).released;
+    } catch (e) {
+      console.error("[overbooking] check failed", productId, (e as Error).message);
+    }
+  }
+
+  // Repair Big Cartel for every artwork we hold or changed.
   const reconciled = await reconcileAll();
-  return { ...out, reconciled };
+  return { ...out, overbooked, reconciled };
 }
 
 export async function getReservationView(id: string) {
@@ -288,7 +367,7 @@ export async function getReservationView(id: string) {
     productImage: r.product_image,
     amount: r.amount,
     expiresAt: r.status === "active" ? r.expires_at : null,
-    storeUrl: `https://${process.env.BIGCARTEL_SUBDOMAIN}.bigcartel.com`,
+    storeUrl: storeUrl(),
     serverNow: new Date().toISOString(), // lets the client countdown ignore a wrong device clock
   };
   // Bank details only once the reservation is fully active (step 5 succeeded).

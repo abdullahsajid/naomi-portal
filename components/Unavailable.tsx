@@ -1,3 +1,4 @@
+import { storeUrl } from "@/lib/env";
 import { Shell } from "./Shell";
 
 const COPY = {
@@ -30,7 +31,7 @@ export function Unavailable({ reason }: { reason: keyof typeof COPY }) {
       <h1 className="font-heading text-3xl text-center leading-tight">{c.title}</h1>
       <p className="mt-4 text-center text-muted">{c.body}</p>
       <a
-        href={`https://${process.env.BIGCARTEL_SUBDOMAIN}.bigcartel.com`}
+        href={storeUrl()}
         className="mt-6 flex items-center justify-center rounded-lg bg-ink text-white py-3.5 font-semibold"
       >
         Back to the store

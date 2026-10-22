@@ -200,18 +200,34 @@ export function adminConflictEmail(o: { message: string; reference: string }): M
 }
 
 export function adminBigCartelProblemEmail(o: { detail: string }): Mail {
-  const url = siteUrl() ? `${siteUrl()}/admin/stock` : "";
+  const url = siteUrl() ? `${siteUrl()}/admin/bigcartel` : "";
   return {
-    subject: "Action needed: the portal can't log in to Big Cartel",
-    text: `The portal could not log in to Big Cartel (${o.detail}). Customers cannot reserve artworks until this is fixed.\n\nThe usual cause is a changed Big Cartel password. Update BIGCARTEL_PASSWORD in Netlify (Site configuration > Environment variables) and redeploy.\n\n${url}`,
+    subject: "Action needed: the portal can't reach Big Cartel",
+    text: `The portal's connection to Big Cartel stopped working (${o.detail}). Customers cannot reserve artworks until this is fixed.\n\nThe usual causes are a changed Big Cartel password, or the portal's access being removed. Open the admin page below and reconnect Big Cartel. If your setup uses a password instead, update BIGCARTEL_PASSWORD in Netlify and redeploy.\n\n${url}`,
     html: layout({
       preheader: "Customers can't reserve artworks until this is fixed",
       heading: "The portal can't reach Big Cartel",
       intro:
-        p(`The portal could not log in to Big Cartel (${esc(o.detail)}). Until this is fixed, customers can&rsquo;t reserve artworks and expired reservations can&rsquo;t be released.`) +
-        p("The usual cause is a changed Big Cartel password."),
-      button: url ? { label: "Check the stock page", href: url } : undefined,
-      outro: "To fix it: update <strong>BIGCARTEL_PASSWORD</strong> in Netlify (Site configuration, Environment variables), then redeploy.",
+        p(`The portal&rsquo;s connection to Big Cartel stopped working (${esc(o.detail)}). Until this is fixed, customers can&rsquo;t reserve artworks and expired reservations can&rsquo;t be released.`) +
+        p("The usual causes are a changed Big Cartel password, or the portal&rsquo;s access being removed."),
+      button: url ? { label: "Reconnect Big Cartel", href: url } : undefined,
+      outro: "If your setup uses a password instead, update <strong>BIGCARTEL_PASSWORD</strong> in Netlify (Site configuration, Environment variables), then redeploy.",
+    }),
+  };
+}
+
+export function unitSoldElsewhereEmail(o: { name: string; product: string; reference: string }): Mail {
+  return {
+    subject: `Your reservation ${o.reference} was cancelled`,
+    text: `Hi ${o.name},\n\nWe're sorry: ${o.product} was just bought by another collector, so your reservation has been cancelled.\n\nPlease do NOT transfer any money. If you already did, reply to this email and we'll refund you straight away.\n\nNaomi Katz Art`,
+    html: layout({
+      preheader: "Please don't transfer any money",
+      heading: "Sorry, this artwork was just sold",
+      intro:
+        p(`Hi ${esc(o.name)},`) +
+        p(`<strong>${esc(o.product)}</strong> was just bought by another collector, so your reservation has been cancelled.`),
+      rows: [["Reservation", o.reference]],
+      outro: "<strong>Please don&rsquo;t transfer any money.</strong> If you already did, just reply to this email and we&rsquo;ll refund you straight away.",
     }),
   };
 }

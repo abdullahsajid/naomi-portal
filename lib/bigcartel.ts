@@ -1,6 +1,6 @@
 import { env } from "./env";
 
-const BASE = "https://api.bigcartel.com/v1";
+const BASE = process.env.BIGCARTEL_API_BASE ?? "https://api.bigcartel.com/v1"; // override is for tests only
 
 // The API spells these with underscores. "sold_out" and "coming_soon" keep the artwork visible with
 // no purchase buttons; "hidden" removes the page from the store.
@@ -27,13 +27,22 @@ export class BcError extends Error {
 
 const TIMEOUT_MS = 8000; // Netlify functions stop at ~10s, so fail fast and show a friendly message
 
+/** How the portal signs in: an OAuth access token (no password), or the store login (Personal Projects). */
+export const bigCartelMode = (): "oauth" | "password" | "none" =>
+  process.env.BIGCARTEL_ACCESS_TOKEN ? "oauth" : process.env.BIGCARTEL_PASSWORD ? "password" : "none";
+
+function authorization(): string {
+  const token = process.env.BIGCARTEL_ACCESS_TOKEN;
+  if (token) return `Bearer ${token}`;
+  return "Basic " + Buffer.from(`${env("BIGCARTEL_SUBDOMAIN")}:${env("BIGCARTEL_PASSWORD")}`).toString("base64");
+}
+
 async function bc(method: string, path: string, body?: unknown) {
   // Read config first so a missing variable is reported as that, not as "no response".
-  const auth = Buffer.from(`${env("BIGCARTEL_SUBDOMAIN")}:${env("BIGCARTEL_PASSWORD")}`).toString("base64");
   const headers: Record<string, string> = {
     Accept: "application/vnd.api+json",
     "User-Agent": env("BIGCARTEL_USER_AGENT"),
-    Authorization: `Basic ${auth}`,
+    Authorization: authorization(),
   };
   if (body) headers["Content-Type"] = "application/vnd.api+json";
 
